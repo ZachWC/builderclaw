@@ -290,9 +290,12 @@ CADDYEOF
     ok "Caddy entry already present or Caddyfile not found -- skipping"
   fi
 
-  # Write a wrapper script so PM2 daemon inherits KAYZO_CONFIG correctly
+  # Write a wrapper script so PM2 daemon inherits env vars correctly
   cat > "${CUSTOMERS_DIR}/${SLUG}/start.sh" << STARTEOF
 #!/usr/bin/env bash
+set -a
+source ${APP_DIR}/.env
+set +a
 export KAYZO_CONFIG=${CUSTOMERS_DIR}/${SLUG}/kayzo.json
 exec node ${APP_DIR}/kayzo.mjs gateway run
 STARTEOF
