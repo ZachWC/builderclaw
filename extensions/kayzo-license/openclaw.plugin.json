@@ -1,0 +1,28 @@
+{
+  "id": "kayzo-license",
+  "name": "Kayzo License",
+  "description": "License validation, usage tracking, and preferences injection for Kayzo gateways.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["licenseKey", "supabaseUrl"],
+    "properties": {
+      "licenseKey": {
+        "type": "string",
+        "description": "The customer's Kayzo license key (UUID)."
+      },
+      "supabaseUrl": {
+        "type": "string",
+        "description": "Supabase project URL (https://<ref>.supabase.co)."
+      },
+      "supabaseAnonKey": {
+        "type": "string",
+        "description": "Supabase anon/public key used to call Edge Functions."
+      },
+      "customerSlug": {
+        "type": "string",
+        "description": "Customer slug used for log messages and flag file paths."
+      }
+    }
+  }
+}

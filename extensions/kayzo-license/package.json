@@ -1,0 +1,15 @@
+{
+  "name": "@kayzo/license",
+  "version": "2026.4.9",
+  "private": true,
+  "description": "Kayzo license validation, usage tracking, and preferences plugin",
+  "type": "module",
+  "devDependencies": {
+    "@openclaw/plugin-sdk": "workspace:*"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

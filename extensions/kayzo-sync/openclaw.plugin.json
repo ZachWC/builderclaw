@@ -1,0 +1,28 @@
+{
+  "id": "kayzo-sync",
+  "name": "Kayzo Sync",
+  "description": "Backs up agent memory to Supabase and restores it on startup.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["licenseKey", "supabaseUrl"],
+    "properties": {
+      "licenseKey": {
+        "type": "string",
+        "description": "The customer's Kayzo license key (UUID)."
+      },
+      "supabaseUrl": {
+        "type": "string",
+        "description": "Supabase project URL (https://<ref>.supabase.co)."
+      },
+      "supabaseAnonKey": {
+        "type": "string",
+        "description": "Supabase anon/public key used to call Edge Functions."
+      },
+      "backupIntervalMinutes": {
+        "type": "number",
+        "description": "How often to back up memory (default: 30 minutes)."
+      }
+    }
+  }
+}

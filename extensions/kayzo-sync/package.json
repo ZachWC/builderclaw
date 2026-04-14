@@ -1,0 +1,15 @@
+{
+  "name": "@kayzo/sync",
+  "version": "2026.4.9",
+  "private": true,
+  "description": "Kayzo memory backup and restore plugin — syncs agent memory to Supabase",
+  "type": "module",
+  "devDependencies": {
+    "@openclaw/plugin-sdk": "workspace:*"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
