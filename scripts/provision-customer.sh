@@ -296,9 +296,9 @@ CADDYEOF
     export HOME=/home/kayzo
     export PATH=\"\$HOME/.fnm:\$PATH\"
     eval \"\$(fnm env --shell bash)\"
-    pm2 start ${APP_DIR}/kayzo.mjs \
+    KAYZO_CONFIG=${CUSTOMERS_DIR}/${SLUG}/kayzo.json \
+      pm2 start ${APP_DIR}/kayzo.mjs \
       --name 'kayzo-${SLUG}' \
-      --env KAYZO_CONFIG=${CUSTOMERS_DIR}/${SLUG}/kayzo.json \
       -- gateway
     pm2 save
   "
