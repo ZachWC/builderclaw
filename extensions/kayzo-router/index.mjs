@@ -255,8 +255,10 @@ app.use("/api/:slug", webhookLimiter, async (req, res) => {
     return res.status(404).json({ error: "customer not found" });
   }
 
-  // Strip /api/:slug prefix to get the remaining path
-  const remaining = req.url.replace(/^\/[^/]+/, "") || "/";
+  // Strip /api/:slug prefix to get the remaining path.
+  // Use originalUrl (never modified by Express) so the regex always matches
+  // from the full request path rather than whatever Express has already stripped.
+  const remaining = req.originalUrl.replace(/^\/api\/[^/]+/, "") || "/";
   const targetUrl = `http://localhost:${customer.port}${remaining}`;
 
   try {
