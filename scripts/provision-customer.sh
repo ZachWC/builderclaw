@@ -76,8 +76,10 @@ gen_uuid() {
 }
 
 # Generate a random 16-char alphanumeric password
+# Use || true to suppress SIGPIPE exit (141) from tr when head closes the pipe early;
+# set -o pipefail would otherwise abort the script.
 gen_password() {
-  LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16
+  LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16 || true
 }
 
 # Supabase REST request (returns response body)
@@ -196,7 +198,7 @@ if [[ "${LOCAL}" == false ]]; then
     "gmail": {
       "account": "",
       "topic": "",
-      "hookUrl": "https://api.kayzo.ai/api/${SLUG}/webhook/gmail",
+      "hookUrl": "https://api.kayzo.app/api/${SLUG}/webhook/gmail",
       "pushToken": "${HOOK_TOKEN}",
       "renewEveryMinutes": 720,
       "includeBody": true,
@@ -276,10 +278,10 @@ fi
 if [[ "${LOCAL}" == false ]]; then
   # Caddy: add direct-access fallback entry
   info "Adding Caddy entry for direct access fallback"
-  if [[ -f "${CADDYFILE}" ]] && ! grep -q "${SLUG}.kayzo.ai" "${CADDYFILE}" 2>/dev/null; then
+  if [[ -f "${CADDYFILE}" ]] && ! grep -q "${SLUG}.kayzo.app" "${CADDYFILE}" 2>/dev/null; then
     cat >> "${CADDYFILE}" << CADDYEOF
 
-${SLUG}.kayzo.ai {
+${SLUG}.kayzo.app {
   reverse_proxy localhost:${PORT}
 }
 CADDYEOF
@@ -325,7 +327,7 @@ echo "╠═══════════════════════�
 printf "║  %-18s %-40s ║\n" "Name:"     "${NAME}"
 printf "║  %-18s %-40s ║\n" "Email:"    "${EMAIL}"
 printf "║  %-18s %-40s ║\n" "Slug:"     "${SLUG}"
-printf "║  %-18s %-40s ║\n" "Login:"    "https://app.kayzo.ai"
+printf "║  %-18s %-40s ║\n" "Login:"    "https://app.kayzo.app"
 printf "║  %-18s %-40s ║\n" "Password:" "Reset email sent via Supabase"
 printf "║  %-18s %-40s ║\n" "License:"  "${LICENSE_KEY}"
 if [[ "${LOCAL}" == false ]]; then
