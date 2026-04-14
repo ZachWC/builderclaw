@@ -290,16 +290,24 @@ CADDYEOF
     ok "Caddy entry already present or Caddyfile not found -- skipping"
   fi
 
-  # PM2: start gateway process
+  # Write a wrapper script so PM2 daemon inherits KAYZO_CONFIG correctly
+  cat > "${CUSTOMERS_DIR}/${SLUG}/start.sh" << STARTEOF
+#!/usr/bin/env bash
+export KAYZO_CONFIG=${CUSTOMERS_DIR}/${SLUG}/kayzo.json
+exec node ${APP_DIR}/kayzo.mjs gateway run
+STARTEOF
+  chmod +x "${CUSTOMERS_DIR}/${SLUG}/start.sh"
+  chown kayzo:kayzo "${CUSTOMERS_DIR}/${SLUG}/start.sh"
+
+  # PM2: start gateway process via wrapper
   info "Starting gateway with PM2"
   sudo -u kayzo bash --login -c "
     export HOME=/home/kayzo
     export PATH=\"\$HOME/.fnm:\$PATH\"
     eval \"\$(fnm env --shell bash)\"
-    KAYZO_CONFIG=${CUSTOMERS_DIR}/${SLUG}/kayzo.json \
-      pm2 start ${APP_DIR}/kayzo.mjs \
+    pm2 start ${CUSTOMERS_DIR}/${SLUG}/start.sh \
       --name 'kayzo-${SLUG}' \
-      -- gateway
+      --interpreter bash
     pm2 save
   "
 
