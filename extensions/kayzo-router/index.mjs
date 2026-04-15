@@ -307,10 +307,21 @@ server.on("upgrade", (req, socket, head) => {
 
 wss.on("connection", async (clientWs, req, slug) => {
   // ── Authenticate ──────────────────────────────────────────────────────────
+  // Accept token from Authorization header or ?token= query param (browser
+  // WebSocket APIs cannot set custom headers, so query param is the fallback).
   let payload;
   try {
     const authHeader = req.headers["authorization"];
-    payload = await authFromHeader(authHeader);
+    if (authHeader) {
+      payload = await authFromHeader(authHeader);
+    } else {
+      const url = new URL(req.url, "http://localhost");
+      const token = url.searchParams.get("token");
+      if (!token) {
+        throw new Error("no token");
+      }
+      payload = await verifyJwt(token);
+    }
   } catch {
     clientWs.close(4001, "unauthorized");
     return;
