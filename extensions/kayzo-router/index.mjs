@@ -367,6 +367,7 @@ wss.on("connection", async (clientWs, req, slug) => {
     "x-real-ip",
     "cf-connecting-ip",
     "cf-ray",
+    "origin",
   ]);
   const upstream = new WebSocket(`ws://localhost:${customer.port}`, {
     headers: Object.fromEntries(
