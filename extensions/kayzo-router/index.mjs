@@ -20,7 +20,6 @@ import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
 import express from "express";
 import rateLimit from "express-rate-limit";
-import { jwtVerify } from "jose";
 import { WebSocket, WebSocketServer } from "ws";
 
 // ── Env ───────────────────────────────────────────────────────────────────────
@@ -32,18 +31,11 @@ dotenv.config({ path: resolve(__dirname, "../../.env") });
 const PORT = parseInt(process.env.ROUTER_PORT ?? "9000", 10);
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const SUPABASE_JWT_SECRET = process.env.SUPABASE_JWT_SECRET;
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   console.error("[router] SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required");
   process.exit(1);
 }
-if (!SUPABASE_JWT_SECRET) {
-  console.error("[router] SUPABASE_JWT_SECRET is required for JWT verification");
-  process.exit(1);
-}
-
-const jwtSecret = new TextEncoder().encode(SUPABASE_JWT_SECRET);
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -90,8 +82,11 @@ async function lookupCustomer(slug) {
  * Throws if invalid.
  */
 async function verifyJwt(token) {
-  const { payload } = await jwtVerify(token, jwtSecret);
-  return payload;
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data?.user) {
+    throw new Error(error?.message ?? "invalid token");
+  }
+  return { sub: data.user.id, email: data.user.email };
 }
 
 /**
