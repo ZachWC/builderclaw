@@ -346,8 +346,21 @@ wss.on("connection", async (clientWs, req, slug) => {
   }
 
   // ── Proxy to localhost:{port} ─────────────────────────────────────────────
+  // Strip proxy/forwarding headers so the gateway sees a clean loopback
+  // connection and treats it as a trusted local client (no auth required).
+  const STRIP_UPSTREAM = new Set([
+    "host",
+    "x-forwarded-for",
+    "x-forwarded-proto",
+    "x-forwarded-host",
+    "x-real-ip",
+    "cf-connecting-ip",
+    "cf-ray",
+  ]);
   const upstream = new WebSocket(`ws://localhost:${customer.port}`, {
-    headers: Object.fromEntries(Object.entries(req.headers).filter(([k]) => k !== "host")),
+    headers: Object.fromEntries(
+      Object.entries(req.headers).filter(([k]) => !STRIP_UPSTREAM.has(k.toLowerCase())),
+    ),
   });
 
   // Buffer messages that arrive from the client before the upstream is open
