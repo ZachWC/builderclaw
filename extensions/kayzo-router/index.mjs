@@ -13,6 +13,7 @@
  *   *    /api/:slug/*             -- unauthenticated proxy for Gmail webhooks (rate-limited)
  */
 
+import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -73,6 +74,25 @@ async function lookupCustomer(slug) {
   });
 
   return { port: data.provisioned_port, authUserId: data.auth_user_id ?? null };
+}
+
+// ── Gateway token helpers ─────────────────────────────────────────────────────
+
+const CUSTOMERS_DIR = process.env.KAYZO_CUSTOMERS_DIR ?? "/home/kayzo/customers";
+
+/**
+ * Read the gateway auth token from a customer's kayzo.json, if present.
+ * Returns null if the file is missing or has no auth token.
+ * @returns {Promise<string | null>}
+ */
+async function readGatewayToken(slug) {
+  try {
+    const text = await readFile(`${CUSTOMERS_DIR}/${slug}/kayzo.json`, "utf8");
+    const config = JSON.parse(text);
+    return config?.gateway?.auth?.token ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // ── JWT helpers ───────────────────────────────────────────────────────────────
@@ -356,6 +376,9 @@ wss.on("connection", async (clientWs, req, slug) => {
     return;
   }
 
+  // Read the gateway's auth token so we can inject it into the connect frame
+  const gatewayToken = await readGatewayToken(slug);
+
   // ── Proxy to localhost:{port} ─────────────────────────────────────────────
   // Strip proxy/forwarding headers so the gateway sees a clean loopback
   // connection and treats it as a trusted local client (no auth required).
@@ -385,9 +408,28 @@ wss.on("connection", async (clientWs, req, slug) => {
   upstream.once("open", () => {
     clearTimeout(connectTimeout);
 
-    // Flush any messages buffered while upstream was connecting
+    // Flush any messages buffered while upstream was connecting.
+    // If the gateway has an auth token, inject it into the connect frame.
     clientWs.off("message", bufferClientMessage);
     for (const { data, isBinary } of clientMessageBuffer) {
+      if (gatewayToken && !isBinary) {
+        try {
+          const raw = Buffer.isBuffer(data)
+            ? data.toString("utf8")
+            : data instanceof ArrayBuffer
+              ? Buffer.from(data).toString("utf8")
+              : "";
+          const frame = JSON.parse(raw);
+          if (frame?.type === "req" && frame?.method === "connect") {
+            frame.params = frame.params ?? {};
+            frame.params.auth = { ...frame.params.auth, token: gatewayToken };
+            upstream.send(JSON.stringify(frame));
+            continue;
+          }
+        } catch {
+          // Not JSON — fall through to raw send
+        }
+      }
       upstream.send(data, { binary: isBinary });
     }
     clientMessageBuffer.length = 0;
