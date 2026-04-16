@@ -350,6 +350,14 @@ wss.on("connection", async (clientWs, req, slug) => {
     headers: Object.fromEntries(Object.entries(req.headers).filter(([k]) => k !== "host")),
   });
 
+  // Buffer messages that arrive from the client before the upstream is open
+  /** @type {Array<{ data: import("ws").RawData, isBinary: boolean }>} */
+  const clientMessageBuffer = [];
+  const bufferClientMessage = (data, isBinary) => {
+    clientMessageBuffer.push({ data, isBinary });
+  };
+  clientWs.on("message", bufferClientMessage);
+
   // Give the upstream 5s to connect
   const connectTimeout = setTimeout(() => {
     if (upstream.readyState !== WebSocket.OPEN) {
@@ -360,6 +368,14 @@ wss.on("connection", async (clientWs, req, slug) => {
 
   upstream.once("open", () => {
     clearTimeout(connectTimeout);
+
+    // Flush any messages buffered while upstream was connecting
+    clientWs.off("message", bufferClientMessage);
+    for (const { data, isBinary } of clientMessageBuffer) {
+      upstream.send(data, { binary: isBinary });
+    }
+    clientMessageBuffer.length = 0;
+
     clientWs.on("message", (data, isBinary) => {
       if (upstream.readyState === WebSocket.OPEN) {
         upstream.send(data, { binary: isBinary });
