@@ -306,6 +306,7 @@ server.on("upgrade", (req, socket, head) => {
 });
 
 wss.on("connection", async (clientWs, req, slug) => {
+  console.log(`[router] WS connection: slug=${slug}`);
   // ── Authenticate ──────────────────────────────────────────────────────────
   // Accept token from Authorization header or ?token= query param (browser
   // WebSocket APIs cannot set custom headers, so query param is the fallback).
@@ -322,7 +323,8 @@ wss.on("connection", async (clientWs, req, slug) => {
       }
       payload = await verifyJwt(token);
     }
-  } catch {
+  } catch (err) {
+    console.log(`[router] WS auth failed slug=${slug}: ${err.message}`);
     clientWs.close(4001, "unauthorized");
     return;
   }
