@@ -90,7 +90,7 @@ async function lookupCustomer(slug) {
  * Throws if invalid.
  */
 async function verifyJwt(token) {
-  const { payload } = await jwtVerify(token, jwtSecret, { algorithms: ["HS256"] });
+  const { payload } = await jwtVerify(token, jwtSecret);
   return payload;
 }
 
