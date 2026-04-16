@@ -302,6 +302,17 @@ server.on("upgrade", (req, socket, head) => {
 
 wss.on("connection", async (clientWs, req, slug) => {
   console.log(`[router] WS connection: slug=${slug}`);
+
+  // Buffer client messages immediately — before any async work — so we never
+  // drop frames (e.g. the gateway connect handshake) that arrive while we are
+  // still doing JWT verification and customer lookup.
+  /** @type {Array<{ data: import("ws").RawData, isBinary: boolean }>} */
+  const clientMessageBuffer = [];
+  const bufferClientMessage = (data, isBinary) => {
+    clientMessageBuffer.push({ data, isBinary });
+  };
+  clientWs.on("message", bufferClientMessage);
+
   // ── Authenticate ──────────────────────────────────────────────────────────
   // Accept token from Authorization header or ?token= query param (browser
   // WebSocket APIs cannot set custom headers, so query param is the fallback).
@@ -362,14 +373,6 @@ wss.on("connection", async (clientWs, req, slug) => {
       Object.entries(req.headers).filter(([k]) => !STRIP_UPSTREAM.has(k.toLowerCase())),
     ),
   });
-
-  // Buffer messages that arrive from the client before the upstream is open
-  /** @type {Array<{ data: import("ws").RawData, isBinary: boolean }>} */
-  const clientMessageBuffer = [];
-  const bufferClientMessage = (data, isBinary) => {
-    clientMessageBuffer.push({ data, isBinary });
-  };
-  clientWs.on("message", bufferClientMessage);
 
   // Give the upstream 5s to connect
   const connectTimeout = setTimeout(() => {
