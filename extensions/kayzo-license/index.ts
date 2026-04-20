@@ -134,8 +134,11 @@ export default definePluginEntry({
 
     // In-memory state
     let cachedPreferencesContext = "";
+    let cachedLicense: LicenseResult | null = null;
     // Per-run token accumulator: runId → { input, output }
     const runUsage = new Map<string, { input: number; output: number }>();
+    // Tokens used in this gateway session not yet synced to Supabase
+    let pendingTokens = 0;
 
     // ── Core refresh: validate license + fetch prefs, write derived files ────
 
@@ -149,6 +152,7 @@ export default definePluginEntry({
       ]);
 
       const license = licenseRaw as LicenseResult;
+      cachedLicense = license;
       const prefsResponse = prefsRaw as {
         ordering: { mode: string; threshold: number | null };
         scheduling: { mode: string; threshold: number | null };
@@ -232,9 +236,22 @@ export default definePluginEntry({
       }
     });
 
-    // ── before_agent_start: inject preferences as system context ─────────────
+    // ── before_agent_start: enforce budget, inject preferences ───────────────
 
     api.on("before_agent_start", async (_event) => {
+      // Budget enforcement: block run if this customer is over their monthly limit.
+      // Free accounts are never blocked. pendingTokens covers usage in this session
+      // that hasn't been synced to Supabase yet.
+      if (cachedLicense && !cachedLicense.freeAccount && cachedLicense.tokenBudget > 0) {
+        const effectiveUsed = cachedLicense.tokensUsed + pendingTokens;
+        if (effectiveUsed >= cachedLicense.tokenBudget) {
+          throw new Error(
+            `Monthly token budget exceeded (${effectiveUsed.toLocaleString()} / ${cachedLicense.tokenBudget.toLocaleString()} tokens used). ` +
+              `Budget resets at the start of next month.`,
+          );
+        }
+      }
+
       // Re-read from disk in case preferences were refreshed by the watcher
       if (!cachedPreferencesContext) {
         try {
@@ -279,6 +296,17 @@ export default definePluginEntry({
 
       if (totalInput === 0 && totalOutput === 0) {
         return;
+      }
+
+      // Advance in-memory counters immediately so the next run in this session
+      // sees the updated usage without waiting for a Supabase round-trip.
+      const runTotal = totalInput + totalOutput;
+      pendingTokens += runTotal;
+      if (cachedLicense) {
+        cachedLicense.tokensUsed += runTotal;
+        if (!cachedLicense.freeAccount && cachedLicense.tokenBudget > 0) {
+          cachedLicense.overBudget = cachedLicense.tokensUsed >= cachedLicense.tokenBudget;
+        }
       }
 
       // Fire-and-forget — never await
@@ -327,6 +355,8 @@ export default definePluginEntry({
             try {
               await refreshLicenseAndPreferences();
               cachedPreferencesContext = "";
+              // Supabase now has the latest token count — reset the local accumulator
+              pendingTokens = 0;
               api.logger.info(`kayzo-license: 24h re-validation complete for ${customerSlug}`);
             } catch (err) {
               api.logger.warn(
