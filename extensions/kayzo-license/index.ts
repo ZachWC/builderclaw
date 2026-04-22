@@ -244,11 +244,29 @@ export default definePluginEntry({
       // that hasn't been synced to Supabase yet.
       if (cachedLicense && !cachedLicense.freeAccount && cachedLicense.tokenBudget > 0) {
         const effectiveUsed = cachedLicense.tokensUsed + pendingTokens;
+
         if (effectiveUsed >= cachedLicense.tokenBudget) {
           throw new Error(
             `Monthly token budget exceeded (${effectiveUsed.toLocaleString()} / ${cachedLicense.tokenBudget.toLocaleString()} tokens used). ` +
               `Budget resets at the start of next month.`,
           );
+        }
+
+        // Warn at 80% so the agent can surface it to the contractor.
+        const usagePct = effectiveUsed / cachedLicense.tokenBudget;
+        if (usagePct >= 0.8) {
+          const remaining = cachedLicense.tokenBudget - effectiveUsed;
+          const alertLine = `[${new Date().toISOString()}] ${customerSlug}: at ${Math.round(usagePct * 100)}% of monthly budget (${effectiveUsed.toLocaleString()}/${cachedLicense.tokenBudget.toLocaleString()} tokens used, ~${remaining.toLocaleString()} remaining)\n`;
+          await fs.appendFile(budgetAlertsPath, alertLine, "utf-8").catch(() => undefined);
+          api.logger.warn(
+            `kayzo-license: ${customerSlug} is at ${Math.round(usagePct * 100)}% of monthly token budget`,
+          );
+
+          const budgetWarning = `\n\n---\n⚠️ Monthly usage notice: this account has used ${Math.round(usagePct * 100)}% of its monthly token budget. Approximately ${remaining.toLocaleString()} tokens remain. Let the contractor know if relevant.`;
+          const baseContext =
+            cachedPreferencesContext ||
+            (await fs.readFile(preferencesContextPath, "utf-8").catch(() => ""));
+          return { appendSystemContext: baseContext + budgetWarning };
         }
       }
 
