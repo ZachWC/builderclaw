@@ -252,6 +252,306 @@ preferencesRouter.patch("/", async (req, res) => {
 
 app.use("/api/preferences/:slug", preferencesRouter);
 
+// ── /api/integrations/:slug ───────────────────────────────────────────────────
+// Manages per-contractor integrations: Gmail OAuth, Lowe's, Home Depot.
+// Must be registered BEFORE the generic /api/:slug/* webhook proxy catch-all.
+
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+const ROUTER_PUBLIC_URL = process.env.ROUTER_PUBLIC_URL ?? "https://api.kayzo.ai";
+const APP_PUBLIC_URL = process.env.APP_PUBLIC_URL ?? "https://app.kayzo.ai";
+
+// ── Shared Gmail OAuth callback (no slug in path — one URL for all customers) ─
+// Registered BEFORE the per-slug integrationsRouter so Express matches it first.
+
+app.get("/api/integrations/gmail/callback", async (req, res) => {
+  // Safely extract string query params — Express types them as string | string[] | object
+  const qstr = (v) => (typeof v === "string" ? v : undefined);
+  const code = qstr(req.query.code);
+  const state = qstr(req.query.state);
+  const oauthError = qstr(req.query.error);
+  const frontendBase = `${APP_PUBLIC_URL}/integrations`;
+
+  if (oauthError || !code || !state) {
+    return res.redirect(
+      `${frontendBase}?gmail=error&reason=${encodeURIComponent(oauthError ?? "missing_code")}`,
+    );
+  }
+
+  let slug, nonce;
+  try {
+    const parsed = JSON.parse(Buffer.from(state, "base64url").toString("utf8"));
+    slug = parsed.slug;
+    nonce = parsed.nonce;
+  } catch {
+    return res.redirect(`${frontendBase}?gmail=error&reason=invalid_state`);
+  }
+
+  if (!slug || !nonce) {
+    return res.redirect(`${frontendBase}?gmail=error&reason=invalid_state`);
+  }
+
+  const { data: customer } = await supabase
+    .from("customers")
+    .select("license_key")
+    .eq("slug", slug)
+    .single();
+  if (!customer) {
+    return res.redirect(`${frontendBase}?gmail=error&reason=customer_not_found`);
+  }
+
+  // Verify CSRF nonce
+  const { data: integ } = await supabase
+    .from("contractor_integrations")
+    .select("gmail_oauth_state")
+    .eq("license_key", customer.license_key)
+    .single();
+
+  if (!integ || integ.gmail_oauth_state !== nonce) {
+    return res.redirect(`${frontendBase}?gmail=error&reason=state_mismatch`);
+  }
+
+  // Exchange code for tokens
+  const sharedCallbackUrl = `${ROUTER_PUBLIC_URL}/api/integrations/gmail/callback`;
+  let tokens;
+  try {
+    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        code,
+        client_id: GOOGLE_CLIENT_ID,
+        client_secret: GOOGLE_CLIENT_SECRET,
+        redirect_uri: sharedCallbackUrl,
+        grant_type: "authorization_code",
+      }),
+    });
+    tokens = await tokenRes.json();
+    if (tokens.error) {
+      throw new Error(tokens.error_description ?? tokens.error);
+    }
+  } catch (err) {
+    console.error("[router] Gmail token exchange error:", err.message);
+    return res.redirect(`${frontendBase}?gmail=error&reason=token_exchange_failed`);
+  }
+
+  // Fetch the user's Gmail address
+  let gmailEmail = null;
+  try {
+    const userRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    });
+    const userInfo = await userRes.json();
+    gmailEmail = userInfo.email ?? null;
+  } catch {
+    // Non-fatal — email just won't display
+  }
+
+  const expiry = tokens.expires_in
+    ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
+    : null;
+
+  await supabase.from("contractor_integrations").upsert(
+    {
+      license_key: customer.license_key,
+      gmail_connected: true,
+      gmail_email: gmailEmail,
+      gmail_refresh_token: tokens.refresh_token ?? null,
+      gmail_access_token: tokens.access_token ?? null,
+      gmail_token_expiry: expiry,
+      gmail_oauth_state: null, // clear nonce
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "license_key" },
+  );
+
+  return res.redirect(`${frontendBase}?gmail=connected`);
+});
+
+// ── Per-slug integrations router ──────────────────────────────────────────────
+
+const integrationsRouter = express.Router({ mergeParams: true });
+
+integrationsRouter.use(async (req, res, next) => {
+  try {
+    const payload = await authFromHeader(req.headers.authorization);
+    // eslint-disable-next-line @typescript-eslint/await-thenable
+    const customer = await lookupCustomer(req.params.slug);
+    if (!customer) {
+      return res.status(404).json({ error: "customer not found" });
+    }
+    if (customer.authUserId && payload.sub !== customer.authUserId) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+    res.locals.slug = req.params.slug;
+    next();
+  } catch {
+    return res.status(401).json({ error: "unauthorized" });
+  }
+});
+
+/** Return integrations status (no raw tokens exposed). */
+integrationsRouter.get("/", async (req, res) => {
+  const { data: customer } = await supabase
+    .from("customers")
+    .select("license_key")
+    .eq("slug", res.locals.slug)
+    .single();
+  if (!customer) {
+    return res.status(404).json({ error: "customer not found" });
+  }
+
+  // Upsert to ensure row exists for older customers provisioned before this migration
+  await supabase
+    .from("contractor_integrations")
+    .upsert(
+      { license_key: customer.license_key },
+      { onConflict: "license_key", ignoreDuplicates: true },
+    );
+
+  const { data } = await supabase
+    .from("contractor_integrations")
+    .select(
+      "gmail_connected,gmail_email,lowes_account_number,lowes_api_key,homedepot_account_number,homedepot_api_key,updated_at",
+    )
+    .eq("license_key", customer.license_key)
+    .single();
+
+  res.json({
+    gmail: {
+      connected: data?.gmail_connected ?? false,
+      email: data?.gmail_email ?? null,
+      oauthAvailable: !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET),
+    },
+    lowes: {
+      configured: !!(data?.lowes_api_key || data?.lowes_account_number),
+      accountNumber: data?.lowes_account_number ?? null,
+      // Never expose the raw API key — just confirm it's set
+      hasApiKey: !!data?.lowes_api_key,
+    },
+    homedepot: {
+      configured: !!(data?.homedepot_api_key || data?.homedepot_account_number),
+      accountNumber: data?.homedepot_account_number ?? null,
+      hasApiKey: !!data?.homedepot_api_key,
+    },
+    updatedAt: data?.updated_at ?? null,
+  });
+});
+
+/** Update Lowe's / Home Depot credentials. */
+integrationsRouter.patch("/", async (req, res) => {
+  const { data: customer } = await supabase
+    .from("customers")
+    .select("license_key")
+    .eq("slug", res.locals.slug)
+    .single();
+  if (!customer) {
+    return res.status(404).json({ error: "customer not found" });
+  }
+
+  const body = req.body ?? {};
+  const update = { updated_at: new Date().toISOString() };
+
+  if (body.lowes_api_key !== undefined) {
+    update.lowes_api_key = body.lowes_api_key;
+  }
+  if (body.lowes_account_number !== undefined) {
+    update.lowes_account_number = body.lowes_account_number;
+  }
+  if (body.homedepot_api_key !== undefined) {
+    update.homedepot_api_key = body.homedepot_api_key;
+  }
+  if (body.homedepot_account_number !== undefined) {
+    update.homedepot_account_number = body.homedepot_account_number;
+  }
+
+  const { error } = await supabase
+    .from("contractor_integrations")
+    .upsert({ license_key: customer.license_key, ...update }, { onConflict: "license_key" });
+
+  if (error) {
+    console.error("[router] integrations upsert error:", error);
+    return res.status(500).json({ error: "failed to update integrations" });
+  }
+  res.json({ ok: true });
+});
+
+/** Start Gmail OAuth flow — returns the Google authorization URL. */
+integrationsRouter.get("/gmail/connect", async (req, res) => {
+  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+    return res.status(503).json({ error: "Gmail OAuth not configured on this server" });
+  }
+
+  const { data: customer } = await supabase
+    .from("customers")
+    .select("license_key")
+    .eq("slug", res.locals.slug)
+    .single();
+  if (!customer) {
+    return res.status(404).json({ error: "customer not found" });
+  }
+
+  // Generate a CSRF state token and persist it briefly
+  const nonce = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+  const state = Buffer.from(JSON.stringify({ slug: res.locals.slug, nonce })).toString("base64url");
+
+  await supabase
+    .from("contractor_integrations")
+    .upsert(
+      {
+        license_key: customer.license_key,
+        gmail_oauth_state: nonce,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "license_key" },
+    );
+
+  // Single shared callback URL — the same for every customer.
+  // The slug is encoded in the state param instead.
+  const callbackUrl = `${ROUTER_PUBLIC_URL}/api/integrations/gmail/callback`;
+  const params = new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID,
+    redirect_uri: callbackUrl,
+    response_type: "code",
+    scope:
+      "https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly",
+    access_type: "offline",
+    prompt: "consent",
+    state,
+  });
+
+  res.json({ url: `https://accounts.google.com/o/oauth2/v2/auth?${params}` });
+});
+
+/** Disconnect Gmail. */
+integrationsRouter.delete("/gmail", async (req, res) => {
+  const { data: customer } = await supabase
+    .from("customers")
+    .select("license_key")
+    .eq("slug", res.locals.slug)
+    .single();
+  if (!customer) {
+    return res.status(404).json({ error: "customer not found" });
+  }
+
+  await supabase.from("contractor_integrations").upsert(
+    {
+      license_key: customer.license_key,
+      gmail_connected: false,
+      gmail_email: null,
+      gmail_refresh_token: null,
+      gmail_access_token: null,
+      gmail_token_expiry: null,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "license_key" },
+  );
+
+  res.json({ ok: true });
+});
+
+app.use("/api/integrations/:slug", integrationsRouter);
+
 // ── /api/:slug/* (Gmail webhook proxy, rate-limited) ──────────────────────────
 
 const webhookLimiter = rateLimit({
