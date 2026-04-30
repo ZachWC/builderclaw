@@ -28,18 +28,18 @@ Anthropic Claude API + Supabase
 |---|---|
 | Provider | Hetzner CPX21 |
 | OS | Ubuntu 24.04 |
-| IP | 5.78.195.230 |
-| User | kayzo (app) / root (admin) |
-| App directory | `/home/kayzo/app` |
-| Customer data | `/home/kayzo/customers/{slug}/` |
-| Env file | `/home/kayzo/app/.env` |
+| IP | `<GATEWAY_IP>` |
+| User | `<USER>` (app) / root (admin) |
+| App directory | `<APP_DIR>` |
+| Customer data | `<CUSTOMER_DATA_DIR>/{slug}/` |
+| Env file | `<APP_DIR>/.env` |
 
 ---
 
 ## How to SSH in
 
 ```bash
-ssh root@5.78.195.230
+ssh <USER>@<GATEWAY_HOST>
 ```
 
 If you set up your SSH key during Hetzner server creation it will log straight in. No password needed.
@@ -51,8 +51,8 @@ If you set up your SSH key during Hetzner server creation it will log straight i
 PM2 runs as the `kayzo` user. Always prefix PM2 commands with the fnm environment setup:
 
 ```bash
-sudo -u kayzo bash --login -c "
-  export HOME=/home/kayzo
+sudo -u <USER> bash --login -c "
+  export HOME=<USER_HOME>
   export PATH=\"\$HOME/.fnm:\$PATH\"
   eval \"\$(fnm env --shell bash)\"
   pm2 list
@@ -89,7 +89,7 @@ pm2 save
 
 ## Env file
 
-Located at `/home/kayzo/app/.env`. Contains all secrets. Required variables:
+Located at `<APP_DIR>/.env`. Contains all secrets. Required variables:
 
 ```
 ANTHROPIC_API_KEY=
@@ -107,8 +107,8 @@ ROUTER_PORT=9000
 After editing `.env`, restart the router and any affected gateways:
 
 ```bash
-sudo -u kayzo bash --login -c "
-  export HOME=/home/kayzo
+sudo -u <USER> bash --login -c "
+  export HOME=<USER_HOME>
   export PATH=\"\$HOME/.fnm:\$PATH\"
   eval \"\$(fnm env --shell bash)\"
   pm2 restart kayzo-router --update-env
@@ -124,7 +124,7 @@ Gateway processes source `.env` automatically via their `start.sh` wrapper.
 ### Cloud customer (hosted on this VPS)
 
 ```bash
-sudo bash /home/kayzo/app/scripts/provision-customer.sh \
+sudo bash <APP_DIR>/scripts/provision-customer.sh \
   --name "Bob Smith" \
   --email bob@example.com \
   --slug bobsmith
@@ -133,7 +133,7 @@ sudo bash /home/kayzo/app/scripts/provision-customer.sh \
 Add `--free` to skip Stripe and set the account active immediately:
 
 ```bash
-sudo bash /home/kayzo/app/scripts/provision-customer.sh \
+sudo bash <APP_DIR>/scripts/provision-customer.sh \
   --name "Bob Smith" \
   --email bob@example.com \
   --slug bobsmith \
@@ -143,7 +143,7 @@ sudo bash /home/kayzo/app/scripts/provision-customer.sh \
 ### Local customer (self-hosted gateway, Supabase record only)
 
 ```bash
-sudo bash /home/kayzo/app/scripts/provision-customer.sh \
+sudo bash <APP_DIR>/scripts/provision-customer.sh \
   --name "Bob Smith" \
   --email bob@example.com \
   --slug bobsmith-local \
@@ -154,7 +154,7 @@ sudo bash /home/kayzo/app/scripts/provision-customer.sh \
 Once the local customer shares their gateway URL:
 
 ```bash
-cd /home/kayzo/app
+cd <APP_DIR>
 npx tsx scripts/set-gateway-url.ts --slug bobsmith-local --url https://kayzo.bob.example.com
 ```
 
@@ -164,8 +164,8 @@ For a cloud customer the script:
 
 1. Generates a UUID license key, temp password, and hook token
 2. Finds the next available port (starting at 3001)
-3. Creates `/home/kayzo/customers/{slug}/kayzo.json` with all plugin config
-4. Creates `/home/kayzo/customers/{slug}/start.sh` — the PM2 wrapper that sources `.env` and sets `KAYZO_CONFIG`
+3. Creates `<CUSTOMER_DATA_DIR>/{slug}/kayzo.json` with all plugin config
+4. Creates `<CUSTOMER_DATA_DIR>/{slug}/start.sh` — the PM2 wrapper that sources `.env` and sets `KAYZO_CONFIG`
 5. Inserts a row in `customers` and creates a Supabase Auth user
 6. Links the auth user ID on the customer record (used by router for JWT verification)
 7. Adds a `{slug}.kayzo.app` Caddy entry and reloads Caddy
@@ -178,7 +178,7 @@ For a local customer it only does steps 1 and 5-6 (no directory, no PM2, no Cadd
 ## Per-customer directory layout
 
 ```
-/home/kayzo/customers/{slug}/
+<CUSTOMER_DATA_DIR>/{slug}/
   kayzo.json          gateway config (plugins, model, workspace path, hooks)
   start.sh            PM2 wrapper — sources .env, sets KAYZO_CONFIG, execs gateway
   workspace/          agent memory and working files
@@ -303,27 +303,27 @@ The construction skills live at `skills/kayzo/SKILL.md`. This file is loaded aut
 
 ```bash
 # 1. Pull latest on VPS
-cd /home/kayzo/app && git pull
+cd <APP_DIR> && git pull
 
 # 2. Rebuild (only needed if TypeScript source changed)
-sudo -u kayzo bash --login -c "
-  export HOME=/home/kayzo
+sudo -u <USER> bash --login -c "
+  export HOME=<USER_HOME>
   export PATH=\"\$HOME/.fnm:\$PATH\"
   eval \"\$(fnm env --shell bash)\"
-  cd /home/kayzo/app && pnpm build 2>&1 | tail -5
+  cd <APP_DIR> && pnpm build 2>&1 | tail -5
 "
 
 # 3. Restart the router
-sudo -u kayzo bash --login -c "
-  export HOME=/home/kayzo
+sudo -u <USER> bash --login -c "
+  export HOME=<USER_HOME>
   export PATH=\"\$HOME/.fnm:\$PATH\"
   eval \"\$(fnm env --shell bash)\"
   pm2 restart kayzo-router --update-env
 "
 
 # 4. Restart customer gateways (if gateway code changed)
-sudo -u kayzo bash --login -c "
-  export HOME=/home/kayzo
+sudo -u <USER> bash --login -c "
+  export HOME=<USER_HOME>
   export PATH=\"\$HOME/.fnm:\$PATH\"
   eval \"\$(fnm env --shell bash)\"
   pm2 restart kayzo-testuser --update-env
@@ -335,16 +335,16 @@ sudo -u kayzo bash --login -c "
 ## Tearing down a customer
 
 ```bash
-sudo bash /home/kayzo/app/scripts/teardown-customer.sh --slug bobsmith
+sudo bash <APP_DIR>/scripts/teardown-customer.sh --slug bobsmith
 ```
 
-This stops and removes the PM2 process and sets `subscription_status=canceled` in Supabase. Add `--delete-dir` to also remove `/home/kayzo/customers/bobsmith/`.
+This stops and removes the PM2 process and sets `subscription_status=canceled` in Supabase. Add `--delete-dir` to also remove `<CUSTOMER_DATA_DIR>/bobsmith/`.
 
 ---
 
 ## Admin scripts
 
-All scripts run from `/home/kayzo/app` or locally with `npx tsx`:
+All scripts run from `<APP_DIR>` or locally with `npx tsx`:
 
 | Script | Description |
 |---|---|
@@ -390,6 +390,6 @@ These were found and fixed during the initial build. Documented here for context
 | `provision-customer.sh` silently exits after generating credentials | `gen_password()` used `tr \| head -c 16` under `set -o pipefail`; `tr` exits 141 (SIGPIPE) when `head` closes the pipe. Fixed: added `\|\| true`. |
 | Gateway subcommand wrong | Script used `kayzo.mjs gateway` instead of `kayzo.mjs gateway run`. |
 | PM2 env var not passed to gateway | `KAYZO_CONFIG=value pm2 start` sets the env on the PM2 client, not the daemon-forked process. Fixed: per-customer `start.sh` wrapper that exports the variable before exec. |
-| Gateway missing `ANTHROPIC_API_KEY` | `start.sh` didn't source `.env`. Fixed: `set -a; source /home/kayzo/app/.env; set +a` added to wrapper. |
+| Gateway missing `ANTHROPIC_API_KEY` | `start.sh` didn't source `.env`. Fixed: `set -a; source <APP_DIR>/.env; set +a` added to wrapper. |
 | Router webhook proxy path wrong | Express strips the mount prefix from `req.url`; the manual `.replace` was double-stripping. Fixed: use `req.originalUrl` instead. |
 | Prompt 2 changes never committed | `src/config/paths.ts`, `src/daemon/constants.ts`, `src/entry.ts`, `src/gateway/server-runtime-config.ts`, and UI files were modified locally but never staged. Fixed: committed and pushed. |
