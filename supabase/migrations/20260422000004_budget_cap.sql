@@ -11,4 +11,4 @@ alter table customers
 update customers
 set monthly_token_budget = 500000
 where free_account = false
-  and monthly_token_budget != 500000;
+  and monthly_token_budget is distinct from 500000;
