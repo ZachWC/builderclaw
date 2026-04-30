@@ -122,7 +122,9 @@ connect():
    - If 'cloud': use ${NEXT_PUBLIC_GATEWAY_WS_URL}/ws/${slug}
    - If 'local' and gatewayUrl is set: use ${customer.gatewayUrl}/ws (the local gateway's WebSocket endpoint)
    - If 'local' and gatewayUrl is null: do not connect, set connectionStatus to 'setup_pending', return early
-2. Include JWT as query param: ?token=${jwt} or as a header if the router supports it
+2. Pass the JWT via the WebSocket subprotocol: new WebSocket(url, [jwt])
+   The router reads it from the Sec-WebSocket-Protocol header and echoes it back.
+   Do NOT put the JWT in the URL (?token=...) — it leaks into server logs.
 3. On open: send the OpenClaw connect frame (read OpenClaw WebSocket protocol docs at https://docs.openclaw.ai/gateway/protocol to get the exact connect frame format)
 4. On message: parse JSON, call onMessage with typed event
 5. On close: set status to reconnecting, schedule reconnect with exponential backoff (1s, 2s, 4s, 8s, max 30s)
