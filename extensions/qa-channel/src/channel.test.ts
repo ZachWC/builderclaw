@@ -119,13 +119,17 @@ describe("qa-channel plugin", () => {
     const abort = new AbortController();
     const startAccount = qaChannelPlugin.gateway?.startAccount;
     expect(startAccount).toBeDefined();
+    let gatewayError: unknown | undefined;
     const task = startAccount!(
       createStartAccountContext({
         account,
         cfg,
         abortSignal: abort.signal,
       }),
-    );
+    ).catch((error) => {
+      gatewayError = error;
+      throw error;
+    });
 
     try {
       state.addInboundMessage({
@@ -135,11 +139,37 @@ describe("qa-channel plugin", () => {
         text: "hello",
       });
 
-      const outbound = await state.waitFor({
+      const waitForOutbound = state.waitFor({
         kind: "message-text",
         textIncludes: "qa-echo: hello",
         direction: "outbound",
         timeoutMs: 15_000,
+      });
+
+      // Fail fast if the gateway loop crashes instead of silently timing out.
+      const outbound = await Promise.race([
+        waitForOutbound,
+        task.then(() => {
+          throw new Error("qa-channel gateway exited before delivering outbound message");
+        }),
+      ]).catch((error) => {
+        const snapshot = state.getSnapshot();
+        const message = [
+          "qa-channel DM roundtrip failed",
+          gatewayError ? `gatewayError: ${String(gatewayError)}` : undefined,
+          `busSnapshot: ${JSON.stringify(
+            {
+              cursor: snapshot.cursor,
+              events: snapshot.events.slice(-5),
+              messages: snapshot.messages.slice(-5),
+            },
+            null,
+            2,
+          )}`,
+        ]
+          .filter(Boolean)
+          .join("\n");
+        throw new Error(message, { cause: error as Error });
       });
       expect("text" in outbound && outbound.text).toContain("qa-echo: hello");
     } finally {
