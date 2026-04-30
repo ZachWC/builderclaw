@@ -6,16 +6,21 @@ vi.mock("./api.js", () => ({
   definePluginEntry: (def: Record<string, unknown>) => def,
 }));
 
-// Mock node:fs/promises so no real disk I/O happens
-vi.mock("node:fs/promises", () => ({
-  writeFile: vi.fn().mockResolvedValue(undefined),
-  readFile: vi.fn().mockResolvedValue("## Contractor Preferences\n- Ordering: {ORDERING_MODE}"),
-  appendFile: vi.fn().mockResolvedValue(undefined),
-  access: vi.fn().mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" })),
-  mkdir: vi.fn().mockResolvedValue(undefined),
-  readdir: vi.fn().mockResolvedValue([]),
-  unlink: vi.fn().mockResolvedValue(undefined),
-}));
+// Mock node:fs/promises so no real disk I/O happens.
+// The plugin uses `import fs from "node:fs/promises"` (default import), so the factory
+// must provide a `default` export alongside the named exports so the default import resolves.
+vi.mock("node:fs/promises", () => {
+  const mod = {
+    writeFile: vi.fn().mockResolvedValue(undefined),
+    readFile: vi.fn().mockResolvedValue("## Contractor Preferences\n- Ordering: {ORDERING_MODE}"),
+    appendFile: vi.fn().mockResolvedValue(undefined),
+    access: vi.fn().mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" })),
+    mkdir: vi.fn().mockResolvedValue(undefined),
+    readdir: vi.fn().mockResolvedValue([]),
+    unlink: vi.fn().mockResolvedValue(undefined),
+  };
+  return { default: mod, ...mod };
+});
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -43,7 +48,13 @@ function makeLicense(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function makePreferences() {
+function makePreferences(): {
+  ordering: { mode: string; threshold: number | null };
+  scheduling: { mode: string; threshold: number | null };
+  emailReplies: { mode: string };
+  flagging: { mode: string };
+  bidMarkup: number;
+} {
   return {
     ordering: { mode: "threshold", threshold: 200 },
     scheduling: { mode: "always_ask", threshold: null },
@@ -109,8 +120,13 @@ describe("kayzo-license plugin", () => {
   let plugin: PluginDef;
 
   beforeEach(async () => {
-    vi.clearAllMocks();
-    plugin = (await import("./index.js")) as unknown as PluginDef;
+    // Reset readFile to the default minimal template in case a previous describe block's
+    // inner beforeEach (e.g., email enforcement) changed it to a different template.
+    const fs = await import("node:fs/promises");
+    vi.mocked(fs.readFile).mockResolvedValue(
+      "## Contractor Preferences\n- Ordering: {ORDERING_MODE}",
+    );
+    plugin = ((await import("./index.js")) as { default: PluginDef }).default;
   });
 
   afterEach(() => {
@@ -148,7 +164,8 @@ describe("kayzo-license plugin", () => {
 
       await handlers.get("gateway_start")!({});
 
-      expect(fetch).toHaveBeenCalledTimes(2);
+      // 2 edge-function calls + 1 fire-and-forget version PATCH
+      expect(fetch).toHaveBeenCalledTimes(3);
       const urls = (fetch as ReturnType<typeof vi.fn>).mock.calls.map(
         (c: unknown[]) => c[0] as string,
       );
@@ -279,6 +296,83 @@ describe("kayzo-license plugin", () => {
       handlers.get("agent_end")?.({});
 
       expect(fetch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("email approval enforcement", () => {
+    // A complete PREFERENCES.md template that includes all placeholders.
+    // Defined here (not in the vi.mock factory) to avoid TDZ issues.
+    const PREFS_TEMPLATE = [
+      "## Autonomy settings",
+      "Ordering: {ORDERING_MODE} {ORDERING_THRESHOLD_TEXT}",
+      "Scheduling: {SCHEDULING_MODE}",
+      "Email replies (outbound): {EMAIL_REPLIES_MODE}",
+      "Flagging: {FLAGGING_MODE}",
+      "Bid markup: {MARKUP_PERCENTAGE}%",
+    ].join("\n");
+
+    // Override readFile in this describe block so the email placeholder is present.
+    // Runs AFTER the outer vi.clearAllMocks() so the implementation is always fresh.
+    beforeEach(async () => {
+      const fs = await import("node:fs/promises");
+      vi.mocked(fs.readFile).mockResolvedValue(PREFS_TEMPLATE);
+    });
+
+    async function getPreferencesContext(
+      prefs: ReturnType<typeof makePreferences>,
+    ): Promise<string> {
+      mockFetchResponses(makeLicense(), prefs);
+      const { api, handlers } = createMockApi();
+      plugin.register(api);
+      await handlers.get("gateway_start")!({});
+
+      const result = (await handlers.get("before_agent_start")!({})) as
+        | { appendSystemContext: string }
+        | undefined;
+      return result?.appendSystemContext ?? "";
+    }
+
+    it("never instructs the agent to send emails autonomously when mode is always_ask", async () => {
+      const context = await getPreferencesContext(makePreferences());
+      expect(context.length).toBeGreaterThan(0);
+      // always_ask appears in the context (not overridden)
+      expect(context).toContain("always_ask");
+    });
+
+    it("routes email replies to approval queue even when mode is always_act", async () => {
+      const context = await getPreferencesContext({
+        ...makePreferences(),
+        emailReplies: { mode: "always_act" },
+      });
+      const emailLine = context.split("\n").find((line) => line.toLowerCase().includes("email"));
+      expect(emailLine).toBeDefined();
+      // The email_replies line must say always_ask regardless of the configured mode
+      expect(emailLine).toContain("always_ask");
+      expect(emailLine).not.toContain("always_act");
+    });
+
+    it("preserves always_act for non-email categories when email is always_act", async () => {
+      const context = await getPreferencesContext({
+        ...makePreferences(),
+        ordering: { mode: "always_act", threshold: null },
+        emailReplies: { mode: "always_act" },
+      });
+      const lines = context.split("\n");
+      const orderingLine = lines.find((l) => l.toLowerCase().includes("ordering"));
+      const emailLine = lines.find((l) => l.toLowerCase().includes("email"));
+
+      // Email is always overridden to always_ask
+      expect(emailLine).toBeDefined();
+      expect(emailLine).not.toContain("always_act");
+      expect(emailLine).toContain("always_ask");
+      // Ordering is not subject to the email override
+      expect(orderingLine).toContain("always_act");
+    });
+
+    it("before_agent_start always returns a non-empty preferences context", async () => {
+      const context = await getPreferencesContext(makePreferences());
+      expect(context.length).toBeGreaterThan(0);
+      expect(context.toLowerCase()).toContain("email");
     });
   });
 });
