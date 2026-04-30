@@ -1,8 +1,8 @@
 # Kayzo Web App -- Individual Cursor Prompts
 
-Separate project from the backend. This is a Next.js app deployed on Vercel at app.kayzo.ai.
+Separate project from the backend. This is a Next.js app deployed on Vercel at app.kayzo.app.
 
-Before starting: the backend must be running and the gateway router at api.kayzo.ai must be working. These prompts assume Prompt 6 (gateway router) from the backend prompts is complete and tested.
+Before starting: the backend must be running and the gateway router at api.kayzo.app must be working. These prompts assume Prompt 6 (gateway router) from the backend prompts is complete and tested.
 
 ---
 
@@ -24,8 +24,8 @@ Create a new Next.js 14 project with App Router, Tailwind CSS, and Supabase.
 4. Set up environment variables in .env.local:
    NEXT_PUBLIC_SUPABASE_URL=
    NEXT_PUBLIC_SUPABASE_ANON_KEY=
-   NEXT_PUBLIC_GATEWAY_WS_URL=wss://api.kayzo.ai
-   NEXT_PUBLIC_GATEWAY_API_URL=https://api.kayzo.ai
+   NEXT_PUBLIC_GATEWAY_WS_URL=wss://api.kayzo.app
+   NEXT_PUBLIC_GATEWAY_API_URL=https://api.kayzo.app
 
 5. Create src/lib/types.ts with TypeScript interfaces for:
    - Customer: { id, email, name, slug, subscriptionStatus, subscriptionTier, freeAccount, gatewayType: 'cloud' | 'local', gatewayUrl: string | null }
@@ -313,7 +313,7 @@ Build the preferences screen where contractors control Kayzo's autonomy.
 
 Create src/app/(dashboard)/preferences/page.tsx.
 
-On mount: fetch current preferences from https://api.kayzo.ai/api/preferences/{slug} and populate the form.
+On mount: fetch current preferences from https://api.kayzo.app/api/preferences/{slug} and populate the form.
 
 Layout: single scrollable page with four sections.
 
@@ -353,7 +353,7 @@ BID MARKUP SECTION:
 
 SAVE BEHAVIOR:
   - Save button at the bottom -- or auto-save on change with a "Saved" toast
-  - On save: PATCH to https://api.kayzo.ai/api/preferences/{slug}
+  - On save: PATCH to https://api.kayzo.app/api/preferences/{slug}
   - Show validation errors inline if mode values are invalid
 
 PREFERENCES DRAWER (from approval cards):
@@ -401,7 +401,7 @@ Screen 4 -- Summary and confirmation:
   "Get started" button
 
 On "Get started":
-  - PATCH preferences to api.kayzo.ai/api/preferences/{slug} with their choices
+  - PATCH preferences to api.kayzo.app/api/preferences/{slug} with their choices
   - Set localStorage key 'kayzo_onboarding_complete' = true
   - Close modal, show the chat screen
 
@@ -511,22 +511,22 @@ DEPLOYMENT:
 2. Set environment variables in Vercel dashboard:
    NEXT_PUBLIC_SUPABASE_URL=
    NEXT_PUBLIC_SUPABASE_ANON_KEY=
-   NEXT_PUBLIC_GATEWAY_WS_URL=wss://api.kayzo.ai
-   NEXT_PUBLIC_GATEWAY_API_URL=https://api.kayzo.ai
-3. Set custom domain: app.kayzo.ai (CNAME to cname.vercel-dns.com)
-4. Add app.kayzo.ai to Supabase allowed redirect URLs in Auth settings
+   NEXT_PUBLIC_GATEWAY_WS_URL=wss://api.kayzo.app
+   NEXT_PUBLIC_GATEWAY_API_URL=https://api.kayzo.app
+3. Set custom domain: app.kayzo.app (CNAME to cname.vercel-dns.com)
+4. Add app.kayzo.app to Supabase allowed redirect URLs in Auth settings
 5. Deploy and confirm the build succeeds
 
 END TO END TEST (requires a provisioned test customer on the backend):
 
 AUTH:
-[ ] Navigate to https://app.kayzo.ai -- confirm redirect to login
+[ ] Navigate to https://app.kayzo.app -- confirm redirect to login
 [ ] Sign in with test customer credentials -- confirm redirect to chat
 [ ] Refresh the page -- confirm still logged in (session persists)
 
 CONNECTION (CLOUD CUSTOMER):
 [ ] Chat screen shows green "Connected" indicator
-[ ] Browser dev tools Network tab shows WebSocket connection to wss://api.kayzo.ai/ws/testuser
+[ ] Browser dev tools Network tab shows WebSocket connection to wss://api.kayzo.app/ws/testuser
 [ ] Disconnect network, confirm "Reconnecting..." banner appears
 [ ] Reconnect network, confirm reconnection and banner disappears
 
@@ -536,7 +536,7 @@ CONNECTION (LOCAL CUSTOMER - SETUP PENDING):
 [ ] Confirm "Check again" button is present
 [ ] Set gateway_url in Supabase to a test value
 [ ] Tap "Check again" -- confirm redirect to the chat screen
-[ ] Confirm the WebSocket connects to the gateway_url value, not api.kayzo.ai
+[ ] Confirm the WebSocket connects to the gateway_url value, not api.kayzo.app
 
 CHAT:
 [ ] Send a text message -- confirm it appears right-aligned immediately (optimistic)

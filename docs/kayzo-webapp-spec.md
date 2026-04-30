@@ -2,9 +2,9 @@
 
 ## What we are building
 
-A purpose-built React web app at app.kayzo.ai that is the primary interface for contractors using Kayzo. It replaces the built-in OpenClaw WebChat entirely. Contractors log in, chat with Kayzo, manage their approval queue, set preferences, and generate bids -- all from one clean interface designed for someone on a job site.
+A purpose-built React web app at app.kayzo.app that is the primary interface for contractors using Kayzo. It replaces the built-in OpenClaw WebChat entirely. Contractors log in, chat with Kayzo, manage their approval queue, set preferences, and generate bids -- all from one clean interface designed for someone on a job site.
 
-This is a separate project from the Kayzo backend. It is deployed on Vercel and communicates with the backend via the gateway router at api.kayzo.ai.
+This is a separate project from the Kayzo backend. It is deployed on Vercel and communicates with the backend via the gateway router at api.kayzo.app.
 
 ---
 
@@ -13,10 +13,10 @@ This is a separate project from the Kayzo backend. It is deployed on Vercel and 
 - Framework: Next.js 14 (App Router)
 - Styling: Tailwind CSS
 - Auth: Supabase Auth (email + password)
-- Real-time: WebSocket connection to customer's gateway via api.kayzo.ai/ws/{slug}
+- Real-time: WebSocket connection to customer's gateway via api.kayzo.app/ws/{slug}
 - State: Zustand for client state
 - Deployment: Vercel (free tier handles MVP traffic easily)
-- Domain: app.kayzo.ai (CNAME to Vercel)
+- Domain: app.kayzo.app (CNAME to Vercel)
 
 ---
 
@@ -25,12 +25,12 @@ This is a separate project from the Kayzo backend. It is deployed on Vercel and 
 1. Contractor logs in via Supabase Auth (email + password)
 2. Web app fetches their customer record from Supabase including gateway_type and gateway_url
 3. Web app determines the WebSocket URL:
-   - If gateway_type = 'cloud': connect to wss://api.kayzo.ai/ws/{slug}
+   - If gateway_type = 'cloud': connect to wss://api.kayzo.app/ws/{slug}
    - If gateway_type = 'local' and gateway_url is set: connect to {gateway_url}/ws with Supabase JWT
    - If gateway_type = 'local' and gateway_url is null: show a setup pending screen
 4. The gateway router (cloud) or the local gateway directly validates the JWT and handles the connection
 5. All chat messages, tool events, and lifecycle events flow through this WebSocket
-6. Preferences are read and written via REST to https://api.kayzo.ai/api/preferences/{slug} (cloud) or directly to the local gateway (local)
+6. Preferences are read and written via REST to https://api.kayzo.app/api/preferences/{slug} (cloud) or directly to the local gateway (local)
 
 ---
 
@@ -132,7 +132,7 @@ Bid markup section:
 Save behavior:
 - Changes save automatically on blur or toggle change
 - Show a small "Saved" confirmation toast
-- POST to https://api.kayzo.ai/api/preferences/{slug} on every change
+- POST to https://api.kayzo.app/api/preferences/{slug} on every change
 
 ### Screen 4 -- Activity log
 
@@ -202,7 +202,7 @@ Screen 4: Summary screen
   - "These are your settings. You can change them anytime from Preferences."
   - "Get started" button
 
-On completion, POST preferences to api.kayzo.ai/api/preferences/{slug} and mark onboarding complete in localStorage.
+On completion, POST preferences to api.kayzo.app/api/preferences/{slug} and mark onboarding complete in localStorage.
 
 ---
 
@@ -264,11 +264,11 @@ Vercel deployment:
 - Set environment variables in Vercel dashboard:
   NEXT_PUBLIC_SUPABASE_URL=
   NEXT_PUBLIC_SUPABASE_ANON_KEY=
-  NEXT_PUBLIC_GATEWAY_URL=wss://api.kayzo.ai
-  NEXT_PUBLIC_API_URL=https://api.kayzo.ai
+  NEXT_PUBLIC_GATEWAY_URL=wss://api.kayzo.app
+  NEXT_PUBLIC_API_URL=https://api.kayzo.app
 
 DNS:
-- CNAME: app.kayzo.ai -> cname.vercel-dns.com
+- CNAME: app.kayzo.app -> cname.vercel-dns.com
 
 ---
 
