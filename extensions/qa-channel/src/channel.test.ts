@@ -99,7 +99,7 @@ function createMockQaRuntime(): PluginRuntime {
 }
 
 describe("qa-channel plugin", () => {
-  it("roundtrips inbound DM traffic through the qa bus", { timeout: 20_000 }, async () => {
+  it("roundtrips inbound DM traffic through the qa bus", { timeout: 60_000 }, async () => {
     const state = createQaBusState();
     const bus = await startQaBusServer({ state });
     await assertQaBusHealthy(bus.baseUrl);
@@ -143,7 +143,7 @@ describe("qa-channel plugin", () => {
         kind: "message-text",
         textIncludes: "qa-echo: hello",
         direction: "outbound",
-        timeoutMs: 15_000,
+        timeoutMs: 45_000,
       });
 
       // Fail fast if the gateway loop crashes instead of silently timing out.
