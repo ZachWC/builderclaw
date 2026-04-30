@@ -140,6 +140,9 @@ const DEFAULT_ALLOWED_ORIGINS = new Set([
   "http://127.0.0.1:3000",
 ]);
 
+// Only allow Kayzo-owned Vercel preview deployments, not arbitrary *.vercel.app origins.
+const KAYZO_PREVIEW_ORIGIN = /^https:\/\/kayzo-[a-z0-9-]+\.vercel\.app$/;
+
 /** @param {string | undefined} origin */
 function isAllowedOrigin(origin) {
   if (!origin) {
@@ -148,8 +151,7 @@ function isAllowedOrigin(origin) {
   if (DEFAULT_ALLOWED_ORIGINS.has(origin)) {
     return true;
   }
-  // Allow Vercel preview deployments for the Kayzo app (e.g. https://...vercel.app)
-  return origin.endsWith(".vercel.app");
+  return KAYZO_PREVIEW_ORIGIN.test(origin);
 }
 
 app.use((req, res, next) => {
