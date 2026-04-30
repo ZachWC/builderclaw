@@ -11,10 +11,6 @@ jobs:
     name: Check & Test
     runs-on: ubuntu-latest
 
-    defaults:
-      run:
-        working-directory: builderclaw
-
     steps:
       - uses: actions/checkout@v4
         with:
