@@ -1,3 +1,4 @@
+import { get } from "node:http";
 import type { PluginRuntime } from "openclaw/plugin-sdk/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { extractToolPayload } from "../../../src/infra/outbound/tool-payload.js";
@@ -8,12 +9,30 @@ import { setQaChannelRuntime } from "../api.js";
 
 beforeEach(() => {
   // This test suite relies on real timeouts + polling; other suites may enable fake timers.
+  // Other suites also stub globals (e.g. `fetch`) — reset to avoid cross-test leaks.
+  vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
+
+async function assertQaBusHealthy(baseUrl: string): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const req = get(`${baseUrl}/health`, (res) => {
+      const ok = res.statusCode === 200;
+      // Drain response
+      res.resume();
+      res.once("end", () =>
+        ok ? resolve() : reject(new Error(`qa-bus health ${res.statusCode}`)),
+      );
+    });
+    req.setTimeout(2_000, () => req.destroy(new Error("qa-bus health timeout")));
+    req.once("error", reject);
+  });
+}
 
 function createMockQaRuntime(): PluginRuntime {
   const sessionUpdatedAt = new Map<string, number>();
@@ -79,6 +98,7 @@ describe("qa-channel plugin", () => {
   it("roundtrips inbound DM traffic through the qa bus", { timeout: 20_000 }, async () => {
     const state = createQaBusState();
     const bus = await startQaBusServer({ state });
+    await assertQaBusHealthy(bus.baseUrl);
     setQaChannelRuntime(createMockQaRuntime());
 
     const cfg = {
