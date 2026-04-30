@@ -1,5 +1,6 @@
 import { get } from "node:http";
 import type { PluginRuntime } from "openclaw/plugin-sdk/core";
+import { fetch as undiciFetch } from "undici";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { extractToolPayload } from "../../../src/infra/outbound/tool-payload.js";
 import { createStartAccountContext } from "../../../test/helpers/plugins/start-account-context.js";
@@ -12,6 +13,9 @@ beforeEach(() => {
   // Other suites also stub globals (e.g. `fetch`) — reset to avoid cross-test leaks.
   vi.unstubAllGlobals();
   vi.useRealTimers();
+  // Ensure qa-bus client uses a real fetch implementation even if other suites
+  // overwrite global fetch outside of vi.stubGlobal().
+  globalThis.fetch = undiciFetch as unknown as typeof fetch;
 });
 
 afterEach(() => {
