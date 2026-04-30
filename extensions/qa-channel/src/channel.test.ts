@@ -1,10 +1,19 @@
 import type { PluginRuntime } from "openclaw/plugin-sdk/core";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { extractToolPayload } from "../../../src/infra/outbound/tool-payload.js";
 import { createStartAccountContext } from "../../../test/helpers/plugins/start-account-context.js";
 import { createQaBusState, startQaBusServer } from "../../qa-lab/api.js";
 import { qaChannelPlugin } from "../api.js";
 import { setQaChannelRuntime } from "../api.js";
+
+beforeEach(() => {
+  // This test suite relies on real timeouts + polling; other suites may enable fake timers.
+  vi.useRealTimers();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function createMockQaRuntime(): PluginRuntime {
   const sessionUpdatedAt = new Map<string, number>();
