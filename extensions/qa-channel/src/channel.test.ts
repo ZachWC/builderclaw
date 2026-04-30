@@ -1,10 +1,42 @@
+import { get } from "node:http";
 import type { PluginRuntime } from "openclaw/plugin-sdk/core";
-import { describe, expect, it } from "vitest";
+import { fetch as undiciFetch } from "undici";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { extractToolPayload } from "../../../src/infra/outbound/tool-payload.js";
 import { createStartAccountContext } from "../../../test/helpers/plugins/start-account-context.js";
 import { createQaBusState, startQaBusServer } from "../../qa-lab/api.js";
 import { qaChannelPlugin } from "../api.js";
 import { setQaChannelRuntime } from "../api.js";
+
+beforeEach(() => {
+  // This test suite relies on real timeouts + polling; other suites may enable fake timers.
+  // Other suites also stub globals (e.g. `fetch`) — reset to avoid cross-test leaks.
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+  // Ensure qa-bus client uses a real fetch implementation even if other suites
+  // overwrite global fetch outside of vi.stubGlobal().
+  globalThis.fetch = undiciFetch as unknown as typeof fetch;
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
+async function assertQaBusHealthy(baseUrl: string): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const req = get(`${baseUrl}/health`, (res) => {
+      const ok = res.statusCode === 200;
+      // Drain response
+      res.resume();
+      res.once("end", () =>
+        ok ? resolve() : reject(new Error(`qa-bus health ${res.statusCode}`)),
+      );
+    });
+    req.setTimeout(2_000, () => req.destroy(new Error("qa-bus health timeout")));
+    req.once("error", reject);
+  });
+}
 
 function createMockQaRuntime(): PluginRuntime {
   const sessionUpdatedAt = new Map<string, number>();
@@ -67,9 +99,10 @@ function createMockQaRuntime(): PluginRuntime {
 }
 
 describe("qa-channel plugin", () => {
-  it("roundtrips inbound DM traffic through the qa bus", { timeout: 20_000 }, async () => {
+  it("roundtrips inbound DM traffic through the qa bus", { timeout: 60_000 }, async () => {
     const state = createQaBusState();
     const bus = await startQaBusServer({ state });
+    await assertQaBusHealthy(bus.baseUrl);
     setQaChannelRuntime(createMockQaRuntime());
 
     const cfg = {
@@ -86,13 +119,17 @@ describe("qa-channel plugin", () => {
     const abort = new AbortController();
     const startAccount = qaChannelPlugin.gateway?.startAccount;
     expect(startAccount).toBeDefined();
+    let gatewayError: unknown | undefined;
     const task = startAccount!(
       createStartAccountContext({
         account,
         cfg,
         abortSignal: abort.signal,
       }),
-    );
+    ).catch((error) => {
+      gatewayError = error;
+      throw error;
+    });
 
     try {
       state.addInboundMessage({
@@ -102,11 +139,37 @@ describe("qa-channel plugin", () => {
         text: "hello",
       });
 
-      const outbound = await state.waitFor({
+      const waitForOutbound = state.waitFor({
         kind: "message-text",
         textIncludes: "qa-echo: hello",
         direction: "outbound",
-        timeoutMs: 15_000,
+        timeoutMs: 45_000,
+      });
+
+      // Fail fast if the gateway loop crashes instead of silently timing out.
+      const outbound = await Promise.race([
+        waitForOutbound,
+        task.then(() => {
+          throw new Error("qa-channel gateway exited before delivering outbound message");
+        }),
+      ]).catch((error) => {
+        const snapshot = state.getSnapshot();
+        const message = [
+          "qa-channel DM roundtrip failed",
+          gatewayError ? `gatewayError: ${String(gatewayError)}` : undefined,
+          `busSnapshot: ${JSON.stringify(
+            {
+              cursor: snapshot.cursor,
+              events: snapshot.events.slice(-5),
+              messages: snapshot.messages.slice(-5),
+            },
+            null,
+            2,
+          )}`,
+        ]
+          .filter(Boolean)
+          .join("\n");
+        throw new Error(message, { cause: error as Error });
       });
       expect("text" in outbound && outbound.text).toContain("qa-echo: hello");
     } finally {

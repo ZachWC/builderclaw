@@ -75,7 +75,7 @@ async function buildPreferencesContext(prefs: Preferences): Promise<string> {
       "## Contractor Preferences",
       `- Ordering: ${prefs.ordering.mode}`,
       `- Scheduling: ${prefs.scheduling.mode}`,
-      `- Email replies: ${prefs.emailReplies.mode}`,
+      `- Email replies: always_ask`,
       `- Flagging: ${prefs.flagging.mode}`,
       `- Bid markup: ${prefs.bidMarkup}%`,
     ].join("\n");
@@ -86,13 +86,16 @@ async function buildPreferencesContext(prefs: Preferences): Promise<string> {
       ? `Auto-approve under $${prefs.ordering.threshold}`
       : "";
 
-  return template
-    .replaceAll("{ORDERING_MODE}", prefs.ordering.mode)
-    .replaceAll("{ORDERING_THRESHOLD_TEXT}", orderingThresholdText)
-    .replaceAll("{SCHEDULING_MODE}", prefs.scheduling.mode)
-    .replaceAll("{EMAIL_REPLIES_MODE}", prefs.emailReplies.mode)
-    .replaceAll("{FLAGGING_MODE}", prefs.flagging.mode)
-    .replaceAll("{MARKUP_PERCENTAGE}", String(prefs.bidMarkup));
+  return (
+    template
+      .replaceAll("{ORDERING_MODE}", prefs.ordering.mode)
+      .replaceAll("{ORDERING_THRESHOLD_TEXT}", orderingThresholdText)
+      .replaceAll("{SCHEDULING_MODE}", prefs.scheduling.mode)
+      // Email replies always require contractor approval before sending — never autonomous.
+      .replaceAll("{EMAIL_REPLIES_MODE}", "always_ask")
+      .replaceAll("{FLAGGING_MODE}", prefs.flagging.mode)
+      .replaceAll("{MARKUP_PERCENTAGE}", String(prefs.bidMarkup))
+  );
 }
 
 // ── Plugin entry ──────────────────────────────────────────────────────────────

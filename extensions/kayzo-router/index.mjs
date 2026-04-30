@@ -40,6 +40,10 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+// ── Public URLs (used for redirects + CORS) ───────────────────────────────────
+const ROUTER_PUBLIC_URL = process.env.ROUTER_PUBLIC_URL ?? "https://api.kayzo.ai";
+const APP_PUBLIC_URL = process.env.APP_PUBLIC_URL ?? "https://app.kayzo.ai";
+
 // ── Customer cache (slug → { provisioned_port, auth_user_id }, TTL 60s) ──────
 
 /** @type {Map<string, { port: number, authUserId: string | null, expiresAt: number }>} */
@@ -125,6 +129,45 @@ async function authFromHeader(authHeader) {
 const app = express();
 app.use(express.json());
 app.disable("x-powered-by");
+
+// ── CORS (Vercel app → router API) ────────────────────────────────────────────
+//
+// The frontend is served from a different origin (e.g. https://app.kayzo.app),
+// so browser requests to https://api.kayzo.app require CORS headers.
+const DEFAULT_ALLOWED_ORIGINS = new Set([
+  APP_PUBLIC_URL,
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+]);
+
+// Only allow Kayzo-owned Vercel preview deployments, not arbitrary *.vercel.app origins.
+const KAYZO_PREVIEW_ORIGIN = /^https:\/\/kayzo-[a-z0-9-]+\.vercel\.app$/;
+
+/** @param {string | undefined} origin */
+function isAllowedOrigin(origin) {
+  if (!origin) {
+    return false;
+  }
+  if (DEFAULT_ALLOWED_ORIGINS.has(origin)) {
+    return true;
+  }
+  return KAYZO_PREVIEW_ORIGIN.test(origin);
+}
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (isAllowedOrigin(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Authorization,Content-Type");
+  }
+  if (req.method === "OPTIONS") {
+    res.status(204).end();
+    return;
+  }
+  next();
+});
 
 // ── /health ───────────────────────────────────────────────────────────────────
 
@@ -258,8 +301,6 @@ app.use("/api/preferences/:slug", preferencesRouter);
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const ROUTER_PUBLIC_URL = process.env.ROUTER_PUBLIC_URL ?? "https://api.kayzo.ai";
-const APP_PUBLIC_URL = process.env.APP_PUBLIC_URL ?? "https://app.kayzo.ai";
 
 // ── Shared Gmail OAuth callback (no slug in path — one URL for all customers) ─
 // Registered BEFORE the per-slug integrationsRouter so Express matches it first.
@@ -495,16 +536,14 @@ integrationsRouter.get("/gmail/connect", async (req, res) => {
   const nonce = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
   const state = Buffer.from(JSON.stringify({ slug: res.locals.slug, nonce })).toString("base64url");
 
-  await supabase
-    .from("contractor_integrations")
-    .upsert(
-      {
-        license_key: customer.license_key,
-        gmail_oauth_state: nonce,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "license_key" },
-    );
+  await supabase.from("contractor_integrations").upsert(
+    {
+      license_key: customer.license_key,
+      gmail_oauth_state: nonce,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "license_key" },
+  );
 
   // Single shared callback URL — the same for every customer.
   // The slug is encoded in the state param instead.

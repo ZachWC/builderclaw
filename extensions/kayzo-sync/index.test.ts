@@ -5,12 +5,17 @@ vi.mock("./api.js", () => ({
   definePluginEntry: (def: Record<string, unknown>) => def,
 }));
 
-vi.mock("node:fs/promises", () => ({
-  writeFile: vi.fn().mockResolvedValue(undefined),
-  readFile: vi.fn(),
-  mkdir: vi.fn().mockResolvedValue(undefined),
-  readdir: vi.fn().mockResolvedValue([]),
-}));
+vi.mock("node:fs/promises", () => {
+  const mod = {
+    writeFile: vi.fn().mockResolvedValue(undefined),
+    readFile: vi.fn(),
+    mkdir: vi.fn().mockResolvedValue(undefined),
+    readdir: vi.fn().mockResolvedValue([]),
+  };
+  // The plugin uses `import fs from "node:fs/promises"` (default import), so provide
+  // a `default` export in addition to named exports.
+  return { default: mod, ...mod };
+});
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -60,7 +65,7 @@ describe("kayzo-sync plugin", () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
-    plugin = (await import("./index.js")) as unknown as PluginDef;
+    plugin = ((await import("./index.js")) as { default: PluginDef }).default;
   });
 
   afterEach(() => {
