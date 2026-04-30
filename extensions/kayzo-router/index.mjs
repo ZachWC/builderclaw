@@ -673,13 +673,18 @@ wss.on("connection", async (clientWs, req, slug) => {
   clientWs.on("message", bufferClientMessage);
 
   // ── Authenticate ──────────────────────────────────────────────────────────
-  // Accept token from Authorization header or ?token= query param (browser
-  // WebSocket APIs cannot set custom headers, so query param is the fallback).
+  // Priority: Authorization header → Sec-WebSocket-Protocol (browser-safe,
+  // token never appears in URLs or server logs) → ?token= query param (legacy).
   let payload;
   try {
     const authHeader = req.headers["authorization"];
+    const subprotocol = req.headers["sec-websocket-protocol"];
     if (authHeader) {
       payload = await authFromHeader(authHeader);
+    } else if (subprotocol) {
+      // Browser sends: new WebSocket(url, [jwt])
+      // The ws library echoes the subprotocol back automatically.
+      payload = await verifyJwt(subprotocol.trim());
     } else {
       const url = new URL(req.url, "http://localhost");
       const token = url.searchParams.get("token");
