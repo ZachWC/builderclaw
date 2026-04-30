@@ -75,7 +75,7 @@ async function buildPreferencesContext(prefs: Preferences): Promise<string> {
       "## Contractor Preferences",
       `- Ordering: ${prefs.ordering.mode}`,
       `- Scheduling: ${prefs.scheduling.mode}`,
-      `- Email replies: ${prefs.emailReplies.mode}`,
+      `- Email replies: always_ask`,
       `- Flagging: ${prefs.flagging.mode}`,
       `- Bid markup: ${prefs.bidMarkup}%`,
     ].join("\n");

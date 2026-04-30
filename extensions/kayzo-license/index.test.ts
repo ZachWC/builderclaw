@@ -374,5 +374,24 @@ describe("kayzo-license plugin", () => {
       expect(context.length).toBeGreaterThan(0);
       expect(context.toLowerCase()).toContain("email");
     });
+
+    it("fallback context (template missing) also enforces always_ask for email", async () => {
+      // Simulate a missing PREFERENCES.md by having readFile throw ENOENT.
+      const fs = await import("node:fs/promises");
+      vi.mocked(fs.readFile).mockRejectedValue(
+        Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
+      );
+
+      const context = await getPreferencesContext({
+        ...makePreferences(),
+        emailReplies: { mode: "always_act" },
+      });
+
+      expect(context.length).toBeGreaterThan(0);
+      const emailLine = context.split("\n").find((l) => l.toLowerCase().includes("email"));
+      expect(emailLine).toBeDefined();
+      expect(emailLine).toContain("always_ask");
+      expect(emailLine).not.toContain("always_act");
+    });
   });
 });
