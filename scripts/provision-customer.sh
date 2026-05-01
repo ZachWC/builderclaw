@@ -165,7 +165,8 @@ if [[ "${LOCAL}" == false ]]; then
   "agents": {
     "defaults": {
       "model": "anthropic/claude-sonnet-4-6",
-      "workspace": "${CUSTOMERS_DIR}/${SLUG}/workspace"
+      "workspace": "${CUSTOMERS_DIR}/${SLUG}/workspace",
+      "verboseDefault": "full"
     }
   },
   "plugins": {
