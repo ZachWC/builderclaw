@@ -42,8 +42,8 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 // ── Public URLs (used for redirects + CORS) ───────────────────────────────────
-const ROUTER_PUBLIC_URL = process.env.ROUTER_PUBLIC_URL ?? "https://api.kayzo.ai";
-const APP_PUBLIC_URL = process.env.APP_PUBLIC_URL ?? "https://app.kayzo.ai";
+const ROUTER_PUBLIC_URL = process.env.ROUTER_PUBLIC_URL ?? "https://api.kayzo.app";
+const APP_PUBLIC_URL = process.env.APP_PUBLIC_URL ?? "https://app.kayzo.app";
 
 // ── Customer cache (slug → { provisioned_port, auth_user_id }, TTL 60s) ──────
 
