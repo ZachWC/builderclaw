@@ -1,7 +1,6 @@
 import { Type } from "@sinclair/typebox";
+import { readStringParam } from "openclaw/plugin-sdk/provider-web-search";
 import { definePluginEntry } from "./api.js";
-
-// ── Types ─────────────────────────────────────────────────────────────────────
 
 type PluginConfig = {
   licenseKey: string;
@@ -25,21 +24,51 @@ type PricingResult = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+function edgeFunctionUrl(supabaseUrl: string, fn: string, query?: Record<string, string>): string {
+  const base = `${supabaseUrl.replace(/\/$/, "")}/functions/v1/${fn}`;
+  if (!query || Object.keys(query).length === 0) {
+    return base;
+  }
+  const url = new URL(base);
+  for (const [k, v] of Object.entries(query)) {
+    url.searchParams.set(k, v);
+  }
+  return url.toString();
+}
+
+function resolveBearerKey(cfg: PluginConfig): string {
+  // Tests + current platform behavior expect the explicit pricingApiKey.
+  // Supabase anon key is stored separately and may be used by other plugins.
+  return cfg.pricingApiKey ?? "";
+}
+
 async function fetchPricing(
-  url: string,
+  supabaseUrl: string,
   apiKey: string,
+  store: "lowes" | "homedepot",
   body: Record<string, unknown>,
 ): Promise<{ products: PricingProduct[] }> {
-  const res = await fetch(url, {
+  // Include store in URL query so observability/tests can distinguish retailer path.
+  const res = await fetch(edgeFunctionUrl(supabaseUrl, "get-price", { store }), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) {
-    throw new Error(`Pricing API returned ${res.status}`);
+    let msg = `Pricing API returned ${res.status}`;
+    try {
+      const json = (await res.json()) as unknown;
+      if (typeof (json as { error?: unknown } | null)?.error === "string") {
+        msg = String((json as { error: string }).error);
+      }
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
   }
   return res.json() as Promise<{ products: PricingProduct[] }>;
 }
@@ -70,20 +99,17 @@ function formatPricingResult(
 export default definePluginEntry({
   id: "kayzo-pricing",
   name: "Kayzo Pricing",
-  description:
-    "Real-time material pricing lookups from Lowe's and Home Depot for Kayzo contractors.",
+  description: "Real-time material pricing lookups via Supabase get-price Edge Function.",
 
   register(api) {
     const cfg = api.pluginConfig as PluginConfig | undefined;
 
     if (!cfg?.licenseKey || !cfg?.supabaseUrl) {
-      api.logger.error(
-        "kayzo-pricing: licenseKey and supabaseUrl are required in plugin config -- plugin disabled",
-      );
+      api.logger.error("kayzo-pricing: licenseKey and supabaseUrl are required -- plugin disabled");
       return;
     }
 
-    const pricingApiKey = cfg.pricingApiKey ?? null;
+    const pricingApiKey = resolveBearerKey(cfg) || null;
 
     // ── before_agent_start: inject pricing context ────────────────────────────
 
@@ -122,7 +148,11 @@ export default definePluginEntry({
         ),
       }),
       async execute(_toolCallId, params) {
-        const { query, store_zip } = params as { query: string; store_zip?: string };
+        const query = readStringParam(params as Record<string, unknown>, "query", {
+          required: true,
+        });
+        const store_zip =
+          readStringParam(params as Record<string, unknown>, "store_zip") || undefined;
 
         if (!pricingApiKey) {
           return {
@@ -136,17 +166,13 @@ export default definePluginEntry({
           };
         }
 
-        const body: Record<string, unknown> = { query };
+        const body: Record<string, unknown> = { store: "lowes", query };
         if (store_zip) {
           body.store_zip = store_zip;
         }
 
         try {
-          const data = await fetchPricing(
-            "https://developer.lowes.com/api/search/products",
-            pricingApiKey,
-            body,
-          );
+          const data = await fetchPricing(cfg.supabaseUrl, pricingApiKey, "lowes", body);
           return formatPricingResult(data.products ?? [], "Lowe's", query);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -176,7 +202,11 @@ export default definePluginEntry({
         ),
       }),
       async execute(_toolCallId, params) {
-        const { query, store_zip } = params as { query: string; store_zip?: string };
+        const query = readStringParam(params as Record<string, unknown>, "query", {
+          required: true,
+        });
+        const store_zip =
+          readStringParam(params as Record<string, unknown>, "store_zip") || undefined;
 
         if (!pricingApiKey) {
           return {
@@ -190,17 +220,13 @@ export default definePluginEntry({
           };
         }
 
-        const body: Record<string, unknown> = { query };
+        const body: Record<string, unknown> = { store: "homedepot", query };
         if (store_zip) {
           body.store_zip = store_zip;
         }
 
         try {
-          const data = await fetchPricing(
-            "https://developer.homedepot.com/api/search/products",
-            pricingApiKey,
-            body,
-          );
+          const data = await fetchPricing(cfg.supabaseUrl, pricingApiKey, "homedepot", body);
           return formatPricingResult(data.products ?? [], "Home Depot", query);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);

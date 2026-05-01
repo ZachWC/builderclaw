@@ -128,7 +128,7 @@ describe("get-price edge function", () => {
       const urls = mockFetch.mock.calls.map((c) => String(c[0]));
       expect(urls.some((u) => u.toLowerCase().includes("lowe"))).toBe(true);
       const calledUrl = urls[0];
-      expect(calledUrl).toContain("q=2x4");
+      expect(calledUrl).toContain("searchTerm=2x4");
       expect(calledUrl).toContain("store_zip=84101");
     });
 
@@ -185,7 +185,7 @@ describe("get-price edge function", () => {
   });
 
   describe("Home Depot path", () => {
-    it("calls a URL that includes 'depot' or 'homedepot' and passes query + store_zip", async () => {
+    it("calls the Home Depot GraphQL endpoint and includes keyword + deliveryZip in payload", async () => {
       const mockFetch = vi.fn().mockResolvedValue(makeUpstreamJsonResponse({ items: [] }));
       vi.stubGlobal("fetch", mockFetch);
 
@@ -196,11 +196,18 @@ describe("get-price edge function", () => {
         ),
       );
 
-      const urls = mockFetch.mock.calls.map((c) => String(c[0]).toLowerCase());
-      expect(urls.some((u) => u.includes("depot") || u.includes("homedepot"))).toBe(true);
-      const calledUrl = urls[0];
-      expect(calledUrl).toContain("q=plywood");
-      expect(calledUrl).toContain("store_zip=30301");
+      const calledUrl = String(mockFetch.mock.calls[0]?.[0] ?? "").toLowerCase();
+      expect(calledUrl).toContain("apionline.homedepot.com");
+      expect(calledUrl).toContain("graphql");
+
+      const init = mockFetch.mock.calls[0]?.[1] as { method?: string; body?: string } | undefined;
+      expect(init?.method).toBe("POST");
+      expect(typeof init?.body).toBe("string");
+      const parsed = JSON.parse(String(init?.body ?? "{}")) as {
+        variables?: { keyword?: string; additionalSearchParams?: { deliveryZip?: string } };
+      };
+      expect(parsed.variables?.keyword).toBe("plywood");
+      expect(parsed.variables?.additionalSearchParams?.deliveryZip).toBe("30301");
     });
 
     it("returns normalized { products: [...] } on success", async () => {
@@ -208,15 +215,18 @@ describe("get-price edge function", () => {
         "fetch",
         vi.fn().mockResolvedValue(
           makeUpstreamJsonResponse({
-            items: [
-              {
-                name: "OSB 7/16 4x8",
-                regularPrice: 12.34,
-                unit: "sheet",
-                itemId: "204971292",
-                availabilityType: "OUT_OF_STOCK",
+            data: {
+              searchModel: {
+                products: [
+                  {
+                    itemId: "204971292",
+                    identifiers: { productLabel: "OSB 7/16 4x8" },
+                    pricing: { value: 12.34 },
+                    fulfillment: { shipping: { inStock: false } },
+                  },
+                ],
               },
-            ],
+            },
           }),
         ),
       );
@@ -233,7 +243,7 @@ describe("get-price edge function", () => {
       expect(json.products[0]).toMatchObject({
         name: "OSB 7/16 4x8",
         price: 12.34,
-        unit: "sheet",
+        unit: "each",
         sku: "204971292",
         inStock: false,
       });

@@ -1,7 +1,7 @@
 {
   "id": "kayzo-pricing",
   "name": "Kayzo Pricing",
-  "description": "Real-time material pricing lookups from Lowe's Pro and Home Depot Pro for Kayzo contractors.",
+  "description": "Real-time material pricing lookups via Supabase get-price Edge Function.",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -21,7 +21,7 @@
       },
       "pricingApiKey": {
         "type": "string",
-        "description": "Kayzo platform pricing service API key. Shared across all customers — set once in the gateway env."
+        "description": "Deprecated: use Supabase anon key. If set, this is used as the Edge Function bearer token."
       }
     }
   }
