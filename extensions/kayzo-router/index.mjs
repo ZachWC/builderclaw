@@ -25,7 +25,7 @@ import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
 import express from "express";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { WebSocket, WebSocketServer } from "ws";
 import { makeIsAllowedOrigin } from "./cors.mjs";
 
@@ -701,7 +701,7 @@ const emailSendLimiter = rateLimit({
   message: { error: "Too many emails sent. Try again later." },
   keyGenerator: (req) => {
     const slug = typeof req.params.slug === "string" ? req.params.slug : "unknown";
-    const ip = req.ip || req.socket?.remoteAddress || "unknown";
+    const ip = ipKeyGenerator(req.ip || req.socket?.remoteAddress || "unknown");
     return `email-send:${slug}:${ip}`;
   },
 });
