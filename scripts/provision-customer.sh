@@ -193,7 +193,8 @@ if [[ "${LOCAL}" == false ]]; then
         "config": {
           "licenseKey": "${LICENSE_KEY}",
           "supabaseUrl": "${SUPABASE_URL}",
-          "supabaseAnonKey": "${SUPABASE_ANON_KEY}"
+          "supabaseAnonKey": "${SUPABASE_ANON_KEY}",
+          "pricingApiKey": "${PRICING_API_KEY}"
         }
       }
     }
