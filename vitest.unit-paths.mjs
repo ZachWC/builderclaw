@@ -5,6 +5,7 @@ export const unitTestIncludePatterns = [
   "src/**/*.test.ts",
   "packages/**/*.test.ts",
   "test/**/*.test.ts",
+  "supabase/functions/**/*.test.ts",
   "ui/src/ui/app-chat.test.ts",
   "ui/src/ui/chat/**/*.test.ts",
   "ui/src/ui/views/agents-utils.test.ts",
