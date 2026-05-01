@@ -93,11 +93,11 @@ See kayzo-mvp-spec.md for the full build specification.
 
 ## MVP -- Web chat pricing cards, bid/invoice PDF email
 
-| File                                | Change                                                                                                                                                   |
-| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `extensions/kayzo-router/index.mjs` | Added `POST /api/email/:slug/send` (JWT): refreshes Gmail OAuth token, sends `multipart/mixed` message with PDF attachment via Gmail API.                |
-| `scripts/provision-customer.sh`     | `agents.defaults.verboseDefault` set to `"full"` in generated `kayzo.json` so operator WebSocket clients receive tool `result` payloads (pricing cards). |
-| `skills/kayzo/SKILL.md`             | Documented `lookup_*_price` usage, `kayzo-bid` / `kayzo-invoice` fenced JSON for the Next.js chat UI.                                                    |
+| File                                | Change                                                                                                                                                                                                                                                                          |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `extensions/kayzo-router/index.mjs` | Added `POST /api/email/:slug/send` (JWT): refreshes Gmail OAuth token, sends `multipart/mixed` message with PDF attachment via Gmail API. Rate-limited per slug + IP (`EMAIL_SEND_RATE_WINDOW_MS` / `EMAIL_SEND_RATE_MAX`). `trust proxy` for Caddy (`TRUST_PROXY`, default 1). |
+| `scripts/provision-customer.sh`     | `agents.defaults.verboseDefault` set to `"full"` in generated `kayzo.json` so operator WebSocket clients receive tool `result` payloads (pricing cards).                                                                                                                        |
+| `skills/kayzo/SKILL.md`             | Documented `lookup_*_price` usage, `kayzo-bid` / `kayzo-invoice` fenced JSON for the Next.js chat UI.                                                                                                                                                                           |
 
 ## Prompt 5 -- VPS server setup
 
