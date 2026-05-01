@@ -1,0 +1,18 @@
+{
+  "name": "@kayzo/pricing",
+  "version": "2026.5.1",
+  "private": true,
+  "description": "Kayzo material pricing lookups from Lowe's Pro and Home Depot Pro",
+  "type": "module",
+  "dependencies": {
+    "@sinclair/typebox": "0.34.49"
+  },
+  "devDependencies": {
+    "@openclaw/plugin-sdk": "workspace:*"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

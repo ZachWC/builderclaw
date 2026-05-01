@@ -1,0 +1,24 @@
+{
+  "id": "kayzo-pricing",
+  "name": "Kayzo Pricing",
+  "description": "Real-time material pricing lookups from Lowe's Pro and Home Depot Pro for Kayzo contractors.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["licenseKey", "supabaseUrl"],
+    "properties": {
+      "licenseKey": {
+        "type": "string",
+        "description": "The customer's Kayzo license key (UUID)."
+      },
+      "supabaseUrl": {
+        "type": "string",
+        "description": "Supabase project URL (https://<ref>.supabase.co)."
+      },
+      "supabaseAnonKey": {
+        "type": "string",
+        "description": "Supabase anon/public key used to call Edge Functions."
+      }
+    }
+  }
+}
