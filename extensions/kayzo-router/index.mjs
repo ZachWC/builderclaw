@@ -22,6 +22,7 @@ import dotenv from "dotenv";
 import express from "express";
 import rateLimit from "express-rate-limit";
 import { WebSocket, WebSocketServer } from "ws";
+import { makeIsAllowedOrigin } from "./cors.mjs";
 
 // ── Env ───────────────────────────────────────────────────────────────────────
 
@@ -41,8 +42,8 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 // ── Public URLs (used for redirects + CORS) ───────────────────────────────────
-const ROUTER_PUBLIC_URL = process.env.ROUTER_PUBLIC_URL ?? "https://api.kayzo.ai";
-const APP_PUBLIC_URL = process.env.APP_PUBLIC_URL ?? "https://app.kayzo.ai";
+const ROUTER_PUBLIC_URL = process.env.ROUTER_PUBLIC_URL ?? "https://api.kayzo.app";
+const APP_PUBLIC_URL = process.env.APP_PUBLIC_URL ?? "https://app.kayzo.app";
 
 // ── Customer cache (slug → { provisioned_port, auth_user_id }, TTL 60s) ──────
 
@@ -134,25 +135,7 @@ app.disable("x-powered-by");
 //
 // The frontend is served from a different origin (e.g. https://app.kayzo.app),
 // so browser requests to https://api.kayzo.app require CORS headers.
-const DEFAULT_ALLOWED_ORIGINS = new Set([
-  APP_PUBLIC_URL,
-  "http://localhost:3000",
-  "http://127.0.0.1:3000",
-]);
-
-// Only allow Kayzo-owned Vercel preview deployments, not arbitrary *.vercel.app origins.
-const KAYZO_PREVIEW_ORIGIN = /^https:\/\/kayzo-[a-z0-9-]+\.vercel\.app$/;
-
-/** @param {string | undefined} origin */
-function isAllowedOrigin(origin) {
-  if (!origin) {
-    return false;
-  }
-  if (DEFAULT_ALLOWED_ORIGINS.has(origin)) {
-    return true;
-  }
-  return KAYZO_PREVIEW_ORIGIN.test(origin);
-}
+const isAllowedOrigin = makeIsAllowedOrigin(APP_PUBLIC_URL);
 
 app.use((req, res, next) => {
   const origin = req.headers.origin;

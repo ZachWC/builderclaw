@@ -25,10 +25,9 @@ See kayzo-mvp-spec.md for the full build specification.
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | `supabase/functions/get-price/index.ts`         | New/updated Edge Function. POST `{ store, query, store_zip }` → calls retailer APIs (Lowes/Home Depot) and returns normalized. |
 | `supabase/functions/get-price/index.test.ts`    | Unit tests for request validation, auth, fetch paths, normalization, and error handling.                                       |
-| `extensions/kayzo-pricing/openclaw.plugin.json` | New plugin manifest. Config schema: `supabaseUrl`, `supabaseAnonKey` (or `pricingApiKey` fallback).                            |
-| `extensions/kayzo-pricing/package.json`         | New workspace package. Uses plugin-sdk.                                                                                        |
-| `extensions/kayzo-pricing/api.ts`               | Local barrel re-exporting `definePluginEntry` and types from `openclaw/plugin-sdk/core`.                                       |
-| `extensions/kayzo-pricing/index.ts`             | New plugin implementation: tools call `${supabaseUrl}/functions/v1/get-price` for Lowes/Home Depot.                            |
+| `extensions/kayzo-pricing/openclaw.plugin.json` | Plugin manifest updated. Config schema: `supabaseUrl`, `supabaseAnonKey` (or `pricingApiKey` fallback).                        |
+| `extensions/kayzo-pricing/package.json`         | Pricing plugin package uses `@sinclair/typebox` for tool schemas.                                                              |
+| `extensions/kayzo-pricing/index.ts`             | Pricing tools now call `${supabaseUrl}/functions/v1/get-price` instead of vendor placeholder endpoints.                        |
 
 ## Prompt 11 -- Memory backup plugin
 

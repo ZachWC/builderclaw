@@ -1,7 +1,7 @@
 {
   "id": "kayzo-pricing",
   "name": "Kayzo Pricing",
-  "description": "Centralized pricing tools that call Supabase get-price Edge Function.",
+  "description": "Real-time material pricing lookups via Supabase get-price Edge Function.",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

@@ -1,8 +1,6 @@
 import { Type } from "@sinclair/typebox";
-import { jsonResult, readStringParam } from "openclaw/plugin-sdk/provider-web-search";
-import { definePluginEntry, type OpenClawPluginApi } from "./api.js";
-
-type Store = "lowes" | "homedepot";
+import { readStringParam } from "openclaw/plugin-sdk/provider-web-search";
+import { definePluginEntry } from "./api.js";
 
 type PluginConfig = {
   supabaseUrl: string;
@@ -10,17 +8,20 @@ type PluginConfig = {
   pricingApiKey?: string;
 };
 
-type GetPriceResponse =
-  | {
-      products: Array<{
-        name: string;
-        price: number;
-        unit: string;
-        sku: string;
-        inStock: boolean;
-      }>;
-    }
-  | { error: string };
+type PricingProduct = {
+  name: string;
+  price: number;
+  unit: string;
+  sku: string;
+  inStock: boolean;
+};
+
+type PricingResult = {
+  content: Array<{ type: "text"; text: string }>;
+  details: { results: PricingProduct[]; error?: string };
+};
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function edgeFunctionUrl(supabaseUrl: string, fn: string): string {
   return `${supabaseUrl.replace(/\/$/, "")}/functions/v1/${fn}`;
@@ -30,86 +31,66 @@ function resolveBearerKey(cfg: PluginConfig): string {
   return cfg.pricingApiKey ?? cfg.supabaseAnonKey ?? "";
 }
 
-async function callGetPrice(params: {
-  cfg: PluginConfig;
-  store: Store;
-  query: string;
-  storeZip?: string;
-}): Promise<GetPriceResponse> {
-  const bearer = resolveBearerKey(params.cfg);
-  if (!bearer) {
-    return { error: "Missing Supabase anon key (supabaseAnonKey/pricingApiKey) in plugin config" };
-  }
-  const res = await fetch(edgeFunctionUrl(params.cfg.supabaseUrl, "get-price"), {
+async function fetchPricing(
+  supabaseUrl: string,
+  apiKey: string,
+  body: Record<string, unknown>,
+): Promise<{ products: PricingProduct[] }> {
+  const res = await fetch(edgeFunctionUrl(supabaseUrl, "get-price"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${bearer}`,
+      Authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({
-      store: params.store,
-      query: params.query,
-      store_zip: params.storeZip,
-    }),
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(10_000),
   });
-  const json = (await res.json().catch(() => null)) as unknown;
   if (!res.ok) {
-    const msg =
-      typeof (json as { error?: unknown } | null)?.error === "string"
-        ? String((json as { error: string }).error)
-        : `get-price returned ${res.status}`;
-    return { error: msg };
+    let msg = `Pricing API returned ${res.status}`;
+    try {
+      const json = (await res.json()) as unknown;
+      if (typeof (json as { error?: unknown } | null)?.error === "string") {
+        msg = String((json as { error: string }).error);
+      }
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
   }
-  return (json ?? { error: "Invalid get-price response" }) as GetPriceResponse;
+  return res.json() as Promise<{ products: PricingProduct[] }>;
 }
 
-const PricingToolSchema = Type.Object(
-  {
-    query: Type.String({ description: "Product search query, e.g. '2x4x8 framing lumber'." }),
-    store_zip: Type.Optional(
-      Type.String({
-        description: "Optional ZIP code to localize availability/pricing when supported.",
-      }),
-    ),
-  },
-  { additionalProperties: false },
-);
-
-function createPricingTool(api: OpenClawPluginApi, store: Store) {
-  const toolName = store === "lowes" ? "lowes_get_price" : "homedepot_get_price";
-  const label = store === "lowes" ? "Lowe's Price Lookup" : "Home Depot Price Lookup";
+function formatPricingResult(
+  products: PricingProduct[],
+  store: string,
+  query: string,
+): PricingResult {
+  if (products.length === 0) {
+    return {
+      content: [{ type: "text", text: `No pricing results found for "${query}" at ${store}.` }],
+      details: { results: [] },
+    };
+  }
+  const lines = products.map(
+    (p) =>
+      `- ${p.name} — $${p.price}/${p.unit} (SKU: ${p.sku}) [${p.inStock ? "In stock" : "Out of stock"}]`,
+  );
   return {
-    name: toolName,
-    label,
-    description:
-      "Search products and retrieve normalized pricing via Kayzo's centralized Supabase get-price Edge Function.",
-    parameters: PricingToolSchema,
-    execute: async (_toolCallId: string, rawParams: Record<string, unknown>) => {
-      const query = readStringParam(rawParams, "query", { required: true });
-      const storeZip = readStringParam(rawParams, "store_zip") || undefined;
-      const cfg = api.pluginConfig as PluginConfig | undefined;
-      if (!cfg?.supabaseUrl) {
-        return jsonResult({ error: "kayzo-pricing: supabaseUrl is required in plugin config" });
-      }
-      return jsonResult(
-        await callGetPrice({
-          cfg,
-          store,
-          query,
-          storeZip,
-        }),
-      );
-    },
+    content: [{ type: "text", text: `${store} pricing for "${query}":\n${lines.join("\n")}` }],
+    details: { results: products },
   };
 }
+
+// ── Plugin entry ──────────────────────────────────────────────────────────────
 
 export default definePluginEntry({
   id: "kayzo-pricing",
   name: "Kayzo Pricing",
-  description: "Centralized pricing tools via Supabase Edge Function get-price.",
+  description: "Real-time material pricing lookups via Supabase get-price Edge Function.",
+
   register(api) {
     const cfg = api.pluginConfig as PluginConfig | undefined;
+
     if (!cfg?.supabaseUrl) {
       api.logger.error(
         "kayzo-pricing: supabaseUrl is required in plugin config -- plugin disabled",
@@ -117,7 +98,135 @@ export default definePluginEntry({
       return;
     }
 
-    api.registerTool(createPricingTool(api, "lowes"));
-    api.registerTool(createPricingTool(api, "homedepot"));
+    const pricingApiKey = resolveBearerKey(cfg) || null;
+
+    // ── before_agent_start: inject pricing context ────────────────────────────
+
+    api.on("before_agent_start", (_event) => {
+      if (!pricingApiKey) {
+        return undefined;
+      }
+
+      return {
+        appendSystemContext: [
+          "## Material Pricing",
+          "",
+          "You have access to real-time material pricing tools. Use them when estimating job costs or creating bids.",
+          "",
+          "- **Lowe's**: use `lookup_lowes_price` to search current Lowe's pricing",
+          "- **Home Depot**: use `lookup_homedepot_price` to search current Home Depot pricing",
+        ].join("\n"),
+      };
+    });
+
+    // ── lookup_lowes_price tool ───────────────────────────────────────────────
+
+    api.registerTool({
+      name: "lookup_lowes_price",
+      label: "Lowe's Price Lookup",
+      description:
+        "Look up current material pricing from Lowe's. Returns product names, prices, SKUs, and availability for construction materials.",
+      parameters: Type.Object({
+        query: Type.String({
+          description: "Product search query (e.g., '2x4x8 framing lumber', 'concrete mix 80lb')",
+        }),
+        store_zip: Type.Optional(
+          Type.String({
+            description: "ZIP code of the nearest Lowe's store for local pricing",
+          }),
+        ),
+      }),
+      async execute(_toolCallId, params) {
+        const query = readStringParam(params as Record<string, unknown>, "query", {
+          required: true,
+        });
+        const store_zip =
+          readStringParam(params as Record<string, unknown>, "store_zip") || undefined;
+
+        if (!pricingApiKey) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: "Lowe's pricing is not available — pricing service is not configured for this gateway.",
+              },
+            ],
+            details: { results: [] },
+          };
+        }
+
+        const body: Record<string, unknown> = { store: "lowes", query };
+        if (store_zip) {
+          body.store_zip = store_zip;
+        }
+
+        try {
+          const data = await fetchPricing(cfg.supabaseUrl, pricingApiKey, body);
+          return formatPricingResult(data.products ?? [], "Lowe's", query);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return {
+            content: [{ type: "text" as const, text: `Could not retrieve Lowe's pricing: ${msg}` }],
+            details: { results: [], error: msg },
+          };
+        }
+      },
+    });
+
+    // ── lookup_homedepot_price tool ───────────────────────────────────────────
+
+    api.registerTool({
+      name: "lookup_homedepot_price",
+      label: "Home Depot Price Lookup",
+      description:
+        "Look up current material pricing from Home Depot. Returns product names, prices, SKUs, and availability for construction materials.",
+      parameters: Type.Object({
+        query: Type.String({
+          description: "Product search query (e.g., 'plywood 4x8 3/4', 'roofing nails 16d')",
+        }),
+        store_zip: Type.Optional(
+          Type.String({
+            description: "ZIP code of the nearest Home Depot store for local pricing",
+          }),
+        ),
+      }),
+      async execute(_toolCallId, params) {
+        const query = readStringParam(params as Record<string, unknown>, "query", {
+          required: true,
+        });
+        const store_zip =
+          readStringParam(params as Record<string, unknown>, "store_zip") || undefined;
+
+        if (!pricingApiKey) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: "Home Depot pricing is not available — pricing service is not configured for this gateway.",
+              },
+            ],
+            details: { results: [] },
+          };
+        }
+
+        const body: Record<string, unknown> = { store: "homedepot", query };
+        if (store_zip) {
+          body.store_zip = store_zip;
+        }
+
+        try {
+          const data = await fetchPricing(cfg.supabaseUrl, pricingApiKey, body);
+          return formatPricingResult(data.products ?? [], "Home Depot", query);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return {
+            content: [
+              { type: "text" as const, text: `Could not retrieve Home Depot pricing: ${msg}` },
+            ],
+            details: { results: [], error: msg },
+          };
+        }
+      },
+    });
   },
 });

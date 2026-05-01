@@ -650,6 +650,16 @@ importers:
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
 
+  extensions/kayzo-pricing:
+    dependencies:
+      '@sinclair/typebox':
+        specifier: 0.34.49
+        version: 0.34.49
+    devDependencies:
+      '@openclaw/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../packages/plugin-sdk
+
   extensions/kayzo-router:
     dependencies:
       '@supabase/supabase-js':

@@ -4,6 +4,9 @@
   "private": true,
   "description": "Kayzo pricing plugin — fetches normalized product pricing via Supabase Edge Functions",
   "type": "module",
+  "dependencies": {
+    "@sinclair/typebox": "0.34.49"
+  },
   "devDependencies": {
     "@openclaw/plugin-sdk": "workspace:*"
   },
