@@ -10,6 +10,8 @@
  *   WS   /ws/:slug                -- authenticated WebSocket proxy to customer gateway
  *   GET  /api/preferences/:slug   -- read contractor_preferences (JWT required)
  *   PATCH /api/preferences/:slug  -- write contractor_preferences (JWT required)
+ *   GET/PATCH /api/integrations/:slug -- Gmail OAuth + store credentials (JWT)
+ *   POST /api/email/:slug/send    -- send email with PDF attachment via Gmail (JWT)
  *   *    /api/:slug/*             -- unauthenticated proxy for Gmail webhooks (rate-limited)
  */
 
@@ -573,6 +575,223 @@ integrationsRouter.delete("/gmail", async (req, res) => {
 });
 
 app.use("/api/integrations/:slug", integrationsRouter);
+
+// ── /api/email/:slug/send ─────────────────────────────────────────────────────
+// Authenticated contractors send PDF attachments via Gmail OAuth (stored in Supabase).
+
+function base64UrlEncodeUtf8(str) {
+  return Buffer.from(str, "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+function chunkBase64ForMime(b64) {
+  return b64.replace(/(.{76})/g, "$1\r\n").trimEnd();
+}
+
+function buildMixedMimeMessage({
+  from,
+  to,
+  cc,
+  subject,
+  textBody,
+  attachmentBase64,
+  attachmentFilename,
+}) {
+  const boundary = `kayzo_${Math.random().toString(36).slice(2)}_${Date.now()}`;
+  const pdfName = String(attachmentFilename || "document.pdf").replace(/[\r\n"]/g, "");
+  const lines = [
+    `From: ${from}`,
+    `To: ${to}`,
+    ...(cc ? [`Cc: ${cc}`] : []),
+    `Subject: ${subject.replace(/\r?\n/g, " ")}`,
+    `MIME-Version: 1.0`,
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    ``,
+    `--${boundary}`,
+    `Content-Type: text/plain; charset=UTF-8`,
+    `Content-Transfer-Encoding: 7bit`,
+    ``,
+    textBody.replace(/\r\n/g, "\n"),
+    ``,
+    `--${boundary}`,
+    `Content-Type: application/pdf`,
+    `Content-Transfer-Encoding: base64`,
+    `Content-Disposition: attachment; filename="${pdfName}"`,
+    ``,
+    chunkBase64ForMime(String(attachmentBase64).replace(/\s/g, "")),
+    ``,
+    `--${boundary}--`,
+    ``,
+  ];
+  return lines.join("\r\n");
+}
+
+async function ensureGmailAccessToken(integrationRow) {
+  const now = Date.now();
+  let expiryMs = 0;
+  if (integrationRow.gmail_token_expiry) {
+    const t = Date.parse(integrationRow.gmail_token_expiry);
+    if (Number.isFinite(t)) {
+      expiryMs = t;
+    }
+  }
+  if (integrationRow.gmail_access_token && expiryMs > now + 60_000) {
+    return integrationRow.gmail_access_token;
+  }
+  if (!integrationRow.gmail_refresh_token) {
+    throw new Error("missing_refresh_token");
+  }
+  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+    throw new Error("oauth_not_configured");
+  }
+  const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: GOOGLE_CLIENT_ID,
+      client_secret: GOOGLE_CLIENT_SECRET,
+      refresh_token: integrationRow.gmail_refresh_token,
+      grant_type: "refresh_token",
+    }),
+  });
+  const tokens = await tokenRes.json();
+  if (tokens.error) {
+    throw new Error(tokens.error_description || tokens.error || "token_refresh_failed");
+  }
+  const newExpiry = tokens.expires_in
+    ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
+    : null;
+  await supabase.from("contractor_integrations").upsert(
+    {
+      license_key: integrationRow.license_key,
+      gmail_access_token: tokens.access_token ?? null,
+      gmail_token_expiry: newExpiry,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "license_key" },
+  );
+  return tokens.access_token;
+}
+
+const emailRouter = express.Router({ mergeParams: true });
+
+emailRouter.use(async (req, res, next) => {
+  try {
+    const payload = await authFromHeader(req.headers.authorization);
+    // eslint-disable-next-line @typescript-eslint/await-thenable
+    const customer = await lookupCustomer(req.params.slug);
+    if (!customer) {
+      return res.status(404).json({ error: "customer not found" });
+    }
+    if (customer.authUserId && payload.sub !== customer.authUserId) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+    res.locals.slug = req.params.slug;
+    next();
+  } catch {
+    return res.status(401).json({ error: "unauthorized" });
+  }
+});
+
+emailRouter.post("/send", async (req, res) => {
+  const slug = res.locals.slug;
+  const body = req.body ?? {};
+  const to = typeof body.to === "string" ? body.to.trim() : "";
+  const cc = typeof body.cc === "string" ? body.cc.trim() : "";
+  const subject =
+    typeof body.subject === "string" && body.subject.trim()
+      ? body.subject.trim()
+      : "Document from Kayzo";
+  const textBody = typeof body.textBody === "string" ? body.textBody : "";
+  const attachmentBase64 = typeof body.attachmentBase64 === "string" ? body.attachmentBase64 : "";
+  const attachmentFilename =
+    typeof body.attachmentFilename === "string" && body.attachmentFilename.trim()
+      ? body.attachmentFilename.trim()
+      : "document.pdf";
+
+  if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+    return res.status(400).json({ error: "valid 'to' email is required" });
+  }
+  if (cc && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cc)) {
+    return res.status(400).json({ error: "invalid cc email" });
+  }
+  if (!attachmentBase64) {
+    return res.status(400).json({ error: "attachmentBase64 is required" });
+  }
+  if (attachmentBase64.length > 12_000_000) {
+    return res.status(400).json({ error: "attachment too large" });
+  }
+
+  const { data: customerRow, error: custErr } = await supabase
+    .from("customers")
+    .select("license_key")
+    .eq("slug", slug)
+    .single();
+  if (custErr || !customerRow) {
+    return res.status(404).json({ error: "customer not found" });
+  }
+
+  const { data: integ, error: integErr } = await supabase
+    .from("contractor_integrations")
+    .select(
+      "license_key,gmail_connected,gmail_email,gmail_refresh_token,gmail_access_token,gmail_token_expiry",
+    )
+    .eq("license_key", customerRow.license_key)
+    .single();
+
+  if (integErr || !integ?.gmail_connected || !integ.gmail_email) {
+    return res.status(409).json({
+      error: "Gmail is not connected. Open Integrations and connect your Gmail account.",
+    });
+  }
+
+  let accessToken;
+  try {
+    accessToken = await ensureGmailAccessToken(integ);
+  } catch (err) {
+    console.error("[router] Gmail token refresh error:", err?.message ?? err);
+    return res.status(502).json({ error: "Could not refresh Gmail credentials. Reconnect Gmail." });
+  }
+
+  const mime = buildMixedMimeMessage({
+    from: integ.gmail_email,
+    to,
+    cc: cc || undefined,
+    subject,
+    textBody: textBody || " ",
+    attachmentBase64,
+    attachmentFilename,
+  });
+  const raw = base64UrlEncodeUtf8(mime);
+
+  let sendRes;
+  try {
+    sendRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ raw }),
+    });
+  } catch (err) {
+    console.error("[router] Gmail send fetch error:", err?.message ?? err);
+    return res.status(502).json({ error: "Gmail request failed" });
+  }
+
+  if (!sendRes.ok) {
+    const detail = await sendRes.text();
+    console.error("[router] Gmail send error:", sendRes.status, detail.slice(0, 600));
+    return res.status(502).json({ error: "Gmail rejected the message" });
+  }
+
+  res.json({ ok: true });
+});
+
+app.use("/api/email/:slug", emailRouter);
 
 // ── /api/:slug/* (Gmail webhook proxy, rate-limited) ──────────────────────────
 

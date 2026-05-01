@@ -91,6 +91,14 @@ See kayzo-mvp-spec.md for the full build specification.
 | `router.mjs`                               | New file. Thin PM2 entry point — imports extensions/kayzo-router/index.mjs.                                                                                                                               |
 | `supabase/migrations/002_auth_user_id.sql` | Adds `auth_user_id uuid` column to `customers` + indexes on `slug` and `auth_user_id`.                                                                                                                    |
 
+## MVP -- Web chat pricing cards, bid/invoice PDF email
+
+| File                                | Change                                                                                                                                                   |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `extensions/kayzo-router/index.mjs` | Added `POST /api/email/:slug/send` (JWT): refreshes Gmail OAuth token, sends `multipart/mixed` message with PDF attachment via Gmail API.                |
+| `scripts/provision-customer.sh`     | `agents.defaults.verboseDefault` set to `"full"` in generated `kayzo.json` so operator WebSocket clients receive tool `result` payloads (pricing cards). |
+| `skills/kayzo/SKILL.md`             | Documented `lookup_*_price` usage, `kayzo-bid` / `kayzo-invoice` fenced JSON for the Next.js chat UI.                                                    |
+
 ## Prompt 5 -- VPS server setup
 
 | File                      | Change                                                                                                                                                            |
