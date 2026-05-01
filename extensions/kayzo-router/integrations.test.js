@@ -13,6 +13,7 @@
  */
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { makeIsAllowedOrigin } from "./cors.mjs";
 
 // ── Hoisted mock setup ───────────────────────────────────────────────────────
 //
@@ -64,23 +65,9 @@ vi.mock("dotenv", () => ({
 
 // ── CORS origin logic tests (pure — no HTTP server needed) ───────────────────
 
-/** Mirrors isAllowedOrigin from index.mjs */
-const DEFAULT_ALLOWED_ORIGINS = new Set([
-  "https://app.kayzo.app",
-  "http://localhost:3000",
-  "http://127.0.0.1:3000",
-]);
-const KAYZO_PREVIEW_ORIGIN = /^https:\/\/kayzo-[a-z0-9-]+\.vercel\.app$/;
-
-function isAllowedOrigin(origin) {
-  if (!origin) {
-    return false;
-  }
-  if (DEFAULT_ALLOWED_ORIGINS.has(origin)) {
-    return true;
-  }
-  return KAYZO_PREVIEW_ORIGIN.test(origin);
-}
+// Use the real implementation. Production APP_PUBLIC_URL is "https://app.kayzo.app";
+// we pass it explicitly so the tests exercise the real isAllowedOrigin logic.
+const isAllowedOrigin = makeIsAllowedOrigin("https://app.kayzo.app");
 
 describe("CORS origin allowlist", () => {
   it("allows the production app origin", () => {
