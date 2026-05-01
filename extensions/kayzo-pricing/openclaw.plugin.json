@@ -1,0 +1,24 @@
+{
+  "id": "kayzo-pricing",
+  "name": "Kayzo Pricing",
+  "description": "Centralized pricing tools that call Supabase get-price Edge Function.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["supabaseUrl"],
+    "properties": {
+      "supabaseUrl": {
+        "type": "string",
+        "description": "Supabase project URL (https://<ref>.supabase.co)."
+      },
+      "supabaseAnonKey": {
+        "type": "string",
+        "description": "Supabase anon/public key used to call Edge Functions."
+      },
+      "pricingApiKey": {
+        "type": "string",
+        "description": "Deprecated: use Supabase anon key. If set, this is used as the Edge Function bearer token."
+      }
+    }
+  }
+}
