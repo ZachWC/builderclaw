@@ -187,6 +187,14 @@ if [[ "${LOCAL}" == false ]]; then
           "supabaseAnonKey": "${SUPABASE_ANON_KEY}",
           "backupIntervalMinutes": 30
         }
+      },
+      "kayzo-pricing": {
+        "enabled": true,
+        "config": {
+          "licenseKey": "${LICENSE_KEY}",
+          "supabaseUrl": "${SUPABASE_URL}",
+          "supabaseAnonKey": "${SUPABASE_ANON_KEY}"
+        }
       }
     }
   },
