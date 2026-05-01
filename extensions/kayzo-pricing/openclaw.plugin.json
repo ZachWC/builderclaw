@@ -18,6 +18,10 @@
       "supabaseAnonKey": {
         "type": "string",
         "description": "Supabase anon/public key used to call Edge Functions."
+      },
+      "pricingApiKey": {
+        "type": "string",
+        "description": "Kayzo platform pricing service API key. Shared across all customers — set once in the gateway env."
       }
     }
   }
