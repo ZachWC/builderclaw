@@ -11,7 +11,10 @@
  *   GET  /api/preferences/:slug   -- read contractor_preferences (JWT required)
  *   PATCH /api/preferences/:slug  -- write contractor_preferences (JWT required)
  *   GET/PATCH /api/integrations/:slug -- Gmail OAuth + store credentials (JWT)
- *   POST /api/email/:slug/send    -- send email with PDF attachment via Gmail (JWT)
+ *   POST /api/email/:slug/send    -- send email with PDF attachment via Gmail (JWT, rate-limited)
+ *
+ * Email send limits (env): EMAIL_SEND_RATE_WINDOW_MS (default 3600000), EMAIL_SEND_RATE_MAX (default 30)
+ * per customer slug + client IP. Trust proxy: TRUST_PROXY (default 1 hop) for correct req.ip behind Caddy.
  *   *    /api/:slug/*             -- unauthenticated proxy for Gmail webhooks (rate-limited)
  */
 
@@ -22,7 +25,7 @@ import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
 import express from "express";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { WebSocket, WebSocketServer } from "ws";
 import { makeIsAllowedOrigin } from "./cors.mjs";
 
@@ -132,6 +135,8 @@ async function authFromHeader(authHeader) {
 const app = express();
 app.use(express.json());
 app.disable("x-powered-by");
+// Caddy terminates TLS; use X-Forwarded-* so req.ip and rate limits reflect the real client.
+app.set("trust proxy", Number.parseInt(process.env.TRUST_PROXY ?? "1", 10) || 1);
 
 // ── CORS (Vercel app → router API) ────────────────────────────────────────────
 //
@@ -678,6 +683,29 @@ async function ensureGmailAccessToken(integrationRow) {
 
 const emailRouter = express.Router({ mergeParams: true });
 
+const emailSendRateWindowMs = (() => {
+  const n = Number.parseInt(process.env.EMAIL_SEND_RATE_WINDOW_MS ?? "3600000", 10);
+  return Number.isFinite(n) && n > 0 ? n : 3_600_000;
+})();
+const emailSendRateMax = (() => {
+  const n = Number.parseInt(process.env.EMAIL_SEND_RATE_MAX ?? "30", 10);
+  return Number.isFinite(n) && n > 0 ? n : 30;
+})();
+
+/** Limit Gmail send abuse: per slug + IP, after JWT auth middleware. */
+const emailSendLimiter = rateLimit({
+  windowMs: emailSendRateWindowMs,
+  max: emailSendRateMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many emails sent. Try again later." },
+  keyGenerator: (req) => {
+    const slug = typeof req.params.slug === "string" ? req.params.slug : "unknown";
+    const ip = ipKeyGenerator(req.ip || req.socket?.remoteAddress || "unknown");
+    return `email-send:${slug}:${ip}`;
+  },
+});
+
 emailRouter.use(async (req, res, next) => {
   try {
     const payload = await authFromHeader(req.headers.authorization);
@@ -696,7 +724,7 @@ emailRouter.use(async (req, res, next) => {
   }
 });
 
-emailRouter.post("/send", async (req, res) => {
+emailRouter.post("/send", emailSendLimiter, async (req, res) => {
   const slug = res.locals.slug;
   const body = req.body ?? {};
   const to = typeof body.to === "string" ? body.to.trim() : "";
