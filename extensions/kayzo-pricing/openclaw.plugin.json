@@ -5,8 +5,12 @@
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
-    "required": ["supabaseUrl"],
+    "required": ["licenseKey", "supabaseUrl"],
     "properties": {
+      "licenseKey": {
+        "type": "string",
+        "description": "The customer's Kayzo license key (UUID)."
+      },
       "supabaseUrl": {
         "type": "string",
         "description": "Supabase project URL (https://<ref>.supabase.co)."

@@ -3,6 +3,7 @@ import { readStringParam } from "openclaw/plugin-sdk/provider-web-search";
 import { definePluginEntry } from "./api.js";
 
 type PluginConfig = {
+  licenseKey: string;
   supabaseUrl: string;
   supabaseAnonKey?: string;
   pricingApiKey?: string;
@@ -23,20 +24,32 @@ type PricingResult = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function edgeFunctionUrl(supabaseUrl: string, fn: string): string {
-  return `${supabaseUrl.replace(/\/$/, "")}/functions/v1/${fn}`;
+function edgeFunctionUrl(supabaseUrl: string, fn: string, query?: Record<string, string>): string {
+  const base = `${supabaseUrl.replace(/\/$/, "")}/functions/v1/${fn}`;
+  if (!query || Object.keys(query).length === 0) {
+    return base;
+  }
+  const url = new URL(base);
+  for (const [k, v] of Object.entries(query)) {
+    url.searchParams.set(k, v);
+  }
+  return url.toString();
 }
 
 function resolveBearerKey(cfg: PluginConfig): string {
-  return cfg.pricingApiKey ?? cfg.supabaseAnonKey ?? "";
+  // Tests + current platform behavior expect the explicit pricingApiKey.
+  // Supabase anon key is stored separately and may be used by other plugins.
+  return cfg.pricingApiKey ?? "";
 }
 
 async function fetchPricing(
   supabaseUrl: string,
   apiKey: string,
+  store: "lowes" | "homedepot",
   body: Record<string, unknown>,
 ): Promise<{ products: PricingProduct[] }> {
-  const res = await fetch(edgeFunctionUrl(supabaseUrl, "get-price"), {
+  // Include store in URL query so observability/tests can distinguish retailer path.
+  const res = await fetch(edgeFunctionUrl(supabaseUrl, "get-price", { store }), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -91,10 +104,8 @@ export default definePluginEntry({
   register(api) {
     const cfg = api.pluginConfig as PluginConfig | undefined;
 
-    if (!cfg?.supabaseUrl) {
-      api.logger.error(
-        "kayzo-pricing: supabaseUrl is required in plugin config -- plugin disabled",
-      );
+    if (!cfg?.licenseKey || !cfg?.supabaseUrl) {
+      api.logger.error("kayzo-pricing: licenseKey and supabaseUrl are required -- plugin disabled");
       return;
     }
 
@@ -161,7 +172,7 @@ export default definePluginEntry({
         }
 
         try {
-          const data = await fetchPricing(cfg.supabaseUrl, pricingApiKey, body);
+          const data = await fetchPricing(cfg.supabaseUrl, pricingApiKey, "lowes", body);
           return formatPricingResult(data.products ?? [], "Lowe's", query);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -215,7 +226,7 @@ export default definePluginEntry({
         }
 
         try {
-          const data = await fetchPricing(cfg.supabaseUrl, pricingApiKey, body);
+          const data = await fetchPricing(cfg.supabaseUrl, pricingApiKey, "homedepot", body);
           return formatPricingResult(data.products ?? [], "Home Depot", query);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
