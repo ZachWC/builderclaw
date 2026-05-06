@@ -12,6 +12,7 @@ export type NormalizedProduct = {
   unit: string;
   sku: string;
   inStock: boolean;
+  url?: string;
 };
 
 export type GetPriceResponseBody = { products: NormalizedProduct[] } | { error: string };
@@ -129,7 +130,16 @@ export function normalizeLowesResponse(payload: unknown): NormalizedProduct[] {
         return null;
       }
 
-      return { name, price, unit, sku, inStock };
+      const rawUrl = safeString(
+        obj.productUrl ?? obj.canonicalUrl ?? obj.url ?? obj.seoUrl ?? obj.pdpUrl,
+      );
+      const url = rawUrl
+        ? rawUrl.startsWith("http")
+          ? rawUrl
+          : `https://www.lowes.com${rawUrl.startsWith("/") ? rawUrl : `/${rawUrl}`}`
+        : `https://www.lowes.com/search?searchTerm=${encodeURIComponent(sku)}`;
+
+      return { name, price, unit, sku, inStock, url };
     })
     .filter((p): p is NormalizedProduct => p !== null);
 }
@@ -177,7 +187,14 @@ export function normalizeHomeDepotResponse(payload: unknown): NormalizedProduct[
         return null;
       }
 
-      return { name, price, unit, sku, inStock };
+      const rawUrl = safeString(obj.productUrl ?? obj.canonicalUrl ?? obj.url);
+      const url = rawUrl
+        ? rawUrl.startsWith("http")
+          ? rawUrl
+          : `https://www.homedepot.com${rawUrl.startsWith("/") ? rawUrl : `/${rawUrl}`}`
+        : `https://www.homedepot.com/p/${sku}`;
+
+      return { name, price, unit, sku, inStock, url };
     })
     .filter((p): p is NormalizedProduct => p !== null);
 }
