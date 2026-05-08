@@ -48,7 +48,7 @@ The contractor uses the Kayzo web chat. After you finish the **narrative** answe
   "jobName": "string",
   "date": "YYYY-MM-DD or human date string",
   "lineItems": [
-    { "id": "1", "description": "string", "quantity": 1, "unit": "ea", "unitPrice": 0.0 }
+    { "id": "1", "description": "string", "quantity": 1, "unit": "ea", "unitPrice": 0.0, "sourceUrl": "https://..." }
   ],
   "markup": 15
 }
@@ -71,6 +71,7 @@ Rules:
 - Every `lineItems[].id` must be a unique string
 - `quantity` and `unitPrice` are numbers
 - `markup` is optional on bids; default is fine if omitted (the UI can edit)
+- `sourceUrl` is optional but **must be included** whenever the pricing tool returned a URL for that product — copy it exactly from the tool result line (the URL after the `—` separator)
 - Put the fences **after** your normal explanation so the contractor sees context, then gets the card + PDF actions in the app
 - For **pricing-only** questions, use the pricing tools and summarize in prose; the app will also show a pricing card from tool results when verbose tool output is enabled
 

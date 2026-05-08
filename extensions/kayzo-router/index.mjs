@@ -1008,10 +1008,35 @@ wss.on("connection", async (clientWs, req, slug) => {
     }
     clientMessageBuffer.length = 0;
 
+    // The upstream localhost connection can open before the browser's connect
+    // frame arrives (internet round-trip > localhost < 1ms), leaving the buffer
+    // empty. Inject the token into the first connect frame seen in live traffic
+    // as well, so auth succeeds regardless of which path the frame takes.
+    let connectFrameSent = clientMessageBuffer.length > 0;
     clientWs.on("message", (data, isBinary) => {
-      if (upstream.readyState === WebSocket.OPEN) {
-        upstream.send(data, { binary: isBinary });
+      if (upstream.readyState !== WebSocket.OPEN) {
+        return;
       }
+      if (!connectFrameSent && gatewayToken && !isBinary) {
+        try {
+          const raw = Buffer.isBuffer(data)
+            ? data.toString("utf8")
+            : data instanceof ArrayBuffer
+              ? Buffer.from(data).toString("utf8")
+              : "";
+          const frame = JSON.parse(raw);
+          if (frame?.type === "req" && frame?.method === "connect") {
+            connectFrameSent = true;
+            frame.params = frame.params ?? {};
+            frame.params.auth = { ...frame.params.auth, token: gatewayToken };
+            upstream.send(JSON.stringify(frame));
+            return;
+          }
+        } catch {
+          // Not JSON — fall through
+        }
+      }
+      upstream.send(data, { binary: isBinary });
     });
     upstream.on("message", (data, isBinary) => {
       if (clientWs.readyState === WebSocket.OPEN) {

@@ -15,6 +15,7 @@ type PricingProduct = {
   unit: string;
   sku: string;
   inStock: boolean;
+  url?: string;
 };
 
 type PricingResult = {
@@ -86,7 +87,7 @@ function formatPricingResult(
   }
   const lines = products.map(
     (p) =>
-      `- ${p.name} — $${p.price}/${p.unit} (SKU: ${p.sku}) [${p.inStock ? "In stock" : "Out of stock"}]`,
+      `- ${p.name} — $${p.price}/${p.unit} (SKU: ${p.sku}) [${p.inStock ? "In stock" : "Out of stock"}]${p.url ? ` — ${p.url}` : ""}`,
   );
   return {
     content: [{ type: "text", text: `${store} pricing for "${query}":\n${lines.join("\n")}` }],
